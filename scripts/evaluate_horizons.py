@@ -14,6 +14,8 @@ import numpy as np
 import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
+from airport_forecast.constants import SHORT_NAMES as SHORT, CORE_AIRPORTS as CORE
+from airport_forecast.data import load_enriched
 from airport_forecast.features import build_features, temporal_train_val_test_split
 from airport_forecast.models import (
     ForecastResult,
@@ -25,17 +27,9 @@ from airport_forecast.models import (
 )
 
 REPORTS = Path(__file__).resolve().parent.parent / "reports"
-SHORT = {
-    "FR_LFLL": "Lyon", "FR_LFRS": "Nantes", "HU_LHBP": "Budapest",
-    "PT_LPPT": "Lisbon", "PT_LPPR": "Porto", "RS_LYBE": "Belgrade",
-}
-CORE = list(SHORT.keys())
 HORIZONS = [1, 3, 6, 12]
 
-enriched = pd.read_parquet(
-    Path(__file__).resolve().parent.parent / "data" / "processed" / "pax_enriched.parquet"
-)
-enriched["date"] = pd.to_datetime(enriched["date"])
+enriched = load_enriched()
 
 
 def get_naive_seasonal(df: pd.DataFrame, airport: str, test_dates: list) -> np.ndarray:
@@ -68,17 +62,18 @@ def evaluate_fold(enriched_df, val_end, horizons, fold_name=""):
     all_results = []
     raw_core = enriched_df[enriched_df["airport"].isin(CORE)].copy()
 
+    # Run recursive forecast ONCE, slice per horizon
+    fc = recursive_forecast_global(
+        model, feature_cols, enriched_df,
+        origin_date=val_end, airports=CORE,
+    )
+    fc = fc.sort_values(["airport", "date"])
+
     for h in horizons:
         if h > len(test_dates):
             continue
 
         # --- LightGBM Recursive ---
-        fc = recursive_forecast_global(
-            model, feature_cols, enriched_df,
-            origin_date=val_end, airports=CORE,
-        )
-        fc = fc.sort_values(["airport", "date"])
-
         for ap in CORE:
             fc_ap = fc[fc["airport"] == ap].head(h)
             fc_ap = fc_ap.dropna(subset=["pax_actual", "pax_pred"])
@@ -180,8 +175,6 @@ cv_results = []
 for val_end, desc in CV_FOLDS:
     print(f"\n--- {desc} ---")
     fold_results = evaluate_fold(enriched, val_end, [1, 3, 6, 12], desc)
-    for r in fold_results:
-        r.model_name = f"{r.model_name}"
     cv_results.extend(fold_results)
     df_fold = results_to_dataframe(fold_results)
     if not df_fold.empty:

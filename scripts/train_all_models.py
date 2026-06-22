@@ -10,7 +10,8 @@ import pandas as pd
 import seaborn as sns
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
-from airport_forecast.data import load_pax
+from airport_forecast.constants import SHORT_NAMES as SHORT, CORE_AIRPORTS as CORE
+from airport_forecast.data import load_enriched
 from airport_forecast.features import build_features
 from airport_forecast.models import (
     evaluate_sarima,
@@ -24,18 +25,8 @@ FIGS = Path(__file__).resolve().parent.parent / "reports" / "figures"
 REPORTS = Path(__file__).resolve().parent.parent / "reports"
 FIGS.mkdir(parents=True, exist_ok=True)
 
-SHORT = {
-    "FR_LFLL": "Lyon", "FR_LFRS": "Nantes", "HU_LHBP": "Budapest",
-    "PT_LPPT": "Lisbon", "PT_LPPR": "Porto", "RS_LYBE": "Belgrade",
-}
-CORE = list(SHORT.keys())
-
-# Load enriched data
 print("Loading enriched data...")
-enriched = pd.read_parquet(
-    Path(__file__).resolve().parent.parent / "data" / "processed" / "pax_enriched.parquet"
-)
-enriched["date"] = pd.to_datetime(enriched["date"])
+enriched = load_enriched()
 feat = build_features(enriched)
 feat_core = feat[feat["airport"].isin(CORE)].copy()
 raw = enriched[enriched["airport"].isin(CORE)].copy()

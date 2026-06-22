@@ -10,18 +10,12 @@ import pandas as pd
 from sklearn.metrics import mean_absolute_error
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
+from airport_forecast.constants import SHORT_NAMES as SHORT, CORE_AIRPORTS as CORE
+from airport_forecast.data import load_enriched
 from airport_forecast.features import build_features, temporal_train_val_test_split
 from airport_forecast.models import FEATURE_COLS
 
-CORE = ["FR_LFLL", "FR_LFRS", "HU_LHBP", "PT_LPPT", "PT_LPPR", "RS_LYBE"]
-SHORT = {"FR_LFLL": "Lyon", "FR_LFRS": "Nantes", "HU_LHBP": "Budapest",
-         "PT_LPPT": "Lisbon", "PT_LPPR": "Porto", "RS_LYBE": "Belgrade"}
-
-# Load
-enriched = pd.read_parquet(
-    Path(__file__).resolve().parent.parent / "data" / "processed" / "pax_enriched.parquet"
-)
-enriched["date"] = pd.to_datetime(enriched["date"])
+enriched = load_enriched()
 feat = build_features(enriched)
 feat_core = feat[feat["airport"].isin(CORE)].copy()
 

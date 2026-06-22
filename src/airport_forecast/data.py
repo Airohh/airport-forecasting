@@ -16,3 +16,10 @@ def load_pax(with_holidays: bool = True) -> pd.DataFrame:
     df = pd.read_parquet(path)
     df["date"] = pd.to_datetime(df["date"])
     return df.sort_values(["airport", "date"]).reset_index(drop=True)
+
+
+def load_enriched() -> pd.DataFrame:
+    """Load macro-enriched PAX data with flight movements."""
+    df = pd.read_parquet(DATA_DIR / "processed" / "pax_enriched.parquet")
+    df["date"] = pd.to_datetime(df["date"])
+    return df.sort_values(["airport", "date"]).reset_index(drop=True)

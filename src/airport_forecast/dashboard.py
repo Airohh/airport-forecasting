@@ -13,10 +13,7 @@ REPORTS = ROOT / "reports"
 FIGS = REPORTS / "figures"
 DATA = ROOT / "data" / "processed"
 
-SHORT = {
-    "FR_LFLL": "Lyon", "FR_LFRS": "Nantes", "HU_LHBP": "Budapest",
-    "PT_LPPT": "Lisbon", "PT_LPPR": "Porto", "RS_LYBE": "Belgrade",
-}
+from airport_forecast.constants import SHORT_NAMES as SHORT
 
 st.set_page_config(page_title="Airport PAX Forecasting", layout="wide")
 st.title("Airport PAX Forecasting - VINCI Airports Network")

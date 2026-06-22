@@ -10,7 +10,7 @@ import pandas as pd
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 
-from airport_forecast.constants import VINCI_AIRPORTS, HORIZONS
+from airport_forecast.constants import VINCI_AIRPORTS, HORIZONS, SHORT_NAMES, CORE_AIRPORTS
 from airport_forecast.features import build_features
 
 app = FastAPI(
@@ -24,11 +24,7 @@ DATA_DIR = ROOT / "data" / "processed"
 MODEL_DIR = ROOT / "models"
 REPORTS_DIR = ROOT / "reports"
 
-CORE_AIRPORTS = ["FR_LFLL", "FR_LFRS", "HU_LHBP", "PT_LPPT", "PT_LPPR", "RS_LYBE"]
-SHORT = {
-    "FR_LFLL": "Lyon", "FR_LFRS": "Nantes", "HU_LHBP": "Budapest",
-    "PT_LPPT": "Lisbon", "PT_LPPR": "Porto", "RS_LYBE": "Belgrade",
-}
+SHORT = SHORT_NAMES
 
 
 class PredictRequest(BaseModel):

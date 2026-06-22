@@ -6,6 +6,8 @@ from pathlib import Path
 import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
+from airport_forecast.constants import SHORT_NAMES as SHORT, CORE_AIRPORTS as CORE
+from airport_forecast.data import load_enriched
 from airport_forecast.features import build_features
 from airport_forecast.models import (
     evaluate_lightgbm_global,
@@ -14,14 +16,7 @@ from airport_forecast.models import (
     results_to_dataframe,
 )
 
-SHORT = {"FR_LFLL": "Lyon", "FR_LFRS": "Nantes", "HU_LHBP": "Budapest",
-         "PT_LPPT": "Lisbon", "PT_LPPR": "Porto", "RS_LYBE": "Belgrade"}
-CORE = list(SHORT.keys())
-
-enriched = pd.read_parquet(
-    Path(__file__).resolve().parent.parent / "data" / "processed" / "pax_enriched.parquet"
-)
-enriched["date"] = pd.to_datetime(enriched["date"])
+enriched = load_enriched()
 
 # 1. One-step (the OLD, optimistic method — uses real lags from test set)
 feat = build_features(enriched)

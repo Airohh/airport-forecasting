@@ -110,10 +110,11 @@ def add_network_features(df: pd.DataFrame) -> pd.DataFrame:
 def add_supply_features(df: pd.DataFrame) -> pd.DataFrame:
     """Lag airline supply features to avoid using future information."""
     out = df.copy()
-    if "n_flights" in out.columns:
-        out["n_flights"] = out.groupby("airport")["n_flights"].shift(1)
-    if "pax_per_flight" in out.columns:
-        out["pax_per_flight"] = out.groupby("airport")["pax_per_flight"].shift(1)
+    supply_cols = [c for c in ("n_flights", "pax_per_flight") if c in out.columns]
+    if supply_cols:
+        lagged = out.groupby("airport")[supply_cols].shift(1)
+        for col in supply_cols:
+            out[f"{col}_lag1"] = lagged[col]
     return out
 
 
