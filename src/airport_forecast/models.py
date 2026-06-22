@@ -113,6 +113,7 @@ FEATURE_COLS = [
     "pax_yoy_growth",
     "unemployment_rate", "gdp", "oil_price_usd", "exchange_rate",
     "network_total_pax", "country_total_pax", "country_market_share", "network_rank",
+    "n_flights", "pax_per_flight",
 ]
 
 
