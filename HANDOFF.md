@@ -16,56 +16,70 @@ Dossier candidature : `TRAVAIL\candidatures\VINCI Airports` (lettre + CV + offre
 - **2 exclus** (data stop 2020, Brexit) : Gatwick, Edinburgh — gardés en EDA seulement
 - **Enrichissement macro** : chômage (Eurostat), PIB (Eurostat), Brent oil (FRED), taux change EUR/HUF EUR/GBP (ECB), holidays (package), événements manuels (COVID, guerre Ukraine, JO 2024, Web Summit)
 - Dataset final : `data/processed/pax_enriched.parquet` — 1988 rows, 14 cols
-- **37 features** après `build_features` : lags(1,2,3,6,12), rolling mean/std(3,6,12), YoY, calendrier cyclique, macro, événements, network (market share, rank)
+- **31 features** après `build_features` : lags(1,2,3,6,12), rolling mean/std(3,6,12), YoY (lagged), calendrier cyclique, macro, événements, network (market share, rank)
 
 ## Modèles (5)
 
 SARIMA, LightGBM Global, LightGBM Local, Prophet, Chronos (Amazon zero-shot), + Ensemble.
 
-## ⚠️ FINDING CRITIQUE — biais d'évaluation (RÉSOLU)
+## Résultats honnêtes (post-fix leakage + recursive)
 
-Le LightGBM original faisait du **one-step-ahead avec lags réels** (utilise le vrai mois précédent), PAS de la vraie prévision multi-step comme SARIMA/Prophet/Chronos. Comparaison injuste.
+### Par horizon (LightGBM Recursive vs SARIMA)
 
-**Correction implémentée** : `recursive_forecast_global()` + `evaluate_lightgbm_recursive()` dans `models.py`. Prédit mois par mois, réinjecte chaque prédiction comme lag.
+| Horizon | LGB Recursive | SARIMA | Usage |
+|---------|--------------|--------|-------|
+| M+1 | **3.2%** | 6.0% | staffing, gates |
+| M+3 | **3.9%** | 5.2% | capacity planning |
+| M+6 | **3.7%** | 6.0% | route planning |
+| M+12 | 7.4% | **5.2%** | budget, contracts |
 
-### Résultats HONNÊTES (test 2025+, par horizon)
+Point clé : LightGBM domine M+1 à M+6, SARIMA gagne M+12 (error accumulation récursive).
 
-| Horizon | Méthode | MAPE | Usage |
-|---------|---------|------|-------|
-| Court terme M+1 | LightGBM one-step (lags réels = légitime à h=1) | ~2.6% (tuné) | staffing, gates |
-| Long terme M+12 | LightGBM récursif | 6.5% | budget |
-| Long terme M+12 | SARIMA | 5.5% | budget |
+### Tous modèles (test 2025+, one-step)
 
-Point clé : à **M+1 le 2.6% est honnête** (on connaît vraiment le mois dernier). À M+12 l'erreur s'accumule. **SARIMA bat LightGBM récursif en long terme** (5.5% vs 6.5%). Budapest récursif = 15.2% car croissance +20%/an fait diverger.
+| Model | Avg MAPE |
+|-------|----------|
+| LightGBM Global | 4.5% (4.1% tuné) |
+| SARIMA | 5.5% |
+| LightGBM Local | 7.4% |
+| Chronos | 11.0% |
+| Prophet | 17.9% |
 
-Optuna : 100 trials, best params dans `reports/best_params.json`, M+1 tuné = 2.6%.
+Optuna : 100 trials, best params dans `reports/best_params.json`, val MAPE tuné = 4.19%.
+
+### Bugs corrigés
+
+1. **Target leakage** : `pax_yoy_growth` utilisait `pax` brut (la cible). Corrigé avec `shift(1) - shift(13)`.
+2. **API backcasting** : `/predict` retournait des valeurs historiques. Corrigé avec `recursive_forecast_global`.
+3. **Test mort** : `test_no_leakage_in_rolling` avait `or True`. Corrigé.
+4. **Dead code** : `holidays_features.py`, `download_macro.py` (v1), `eda.py`, `eda_advanced.py` supprimés.
 
 ## Structure
 
 ```
 src/airport_forecast/  : api.py, constants.py, dashboard.py, data.py, features.py,
-                         holidays_features.py, logging_config.py, mlflow_tracking.py,
+                         logging_config.py, mlflow_tracking.py,
                          models.py, monitoring.py (PSI drift)
 scripts/               : download_eurostat, process_eurostat, download_macro_v2,
-                         eda_full, eda_advanced, train_all_models, train_chronos,
-                         tune_lightgbm, compare_recursive
+                         eda_full, train_all_models, train_chronos,
+                         tune_lightgbm, compare_recursive, evaluate_horizons
 tests/                 : 30 tests (data, features, models, API, monitoring) — tous pass
-reports/figures/       : 33 plots EDA
+reports/figures/       : 25+ plots EDA
+.meta/graphify/        : knowledge graphs (src, scripts, tests, full)
 Dockerfile, docker-compose.yml, .github/workflows/ci.yml, README.md (Mermaid)
 ```
 
 ## Git
 
-11 commits conventional (init/feat/test/ci/data). Repo local, PAS encore push GitHub.
-`recursive_forecast` + `compare_recursive.py` + ce HANDOFF.md = changements NON commités.
+15 commits conventional. Repo local, PAS encore push GitHub.
 
 ## TODO restant
 
-1. Commit le forecasting récursif (changement non commité)
-2. Éval propre PAR HORIZON (M+1, M+3, M+6, M+12 séparés) — script à faire
-3. Mettre à jour README avec les chiffres honnêtes (le README montre encore 2.6% sans nuance horizon)
+1. ~~Commit le forecasting récursif~~ ✅
+2. ~~Éval par horizon (M+1, M+3, M+6, M+12)~~ ✅
+3. ~~README avec chiffres honnêtes~~ ✅
 4. Push GitHub (`git remote add origin` + push)
-5. Optionnel : log-transform + growth_acceleration pour améliorer Budapest
+5. Optionnel : log-transform + growth_acceleration pour améliorer Porto M+12
 6. Optionnel : Kubeflow (gap technique de l'offre)
 7. Lire rapport annuel VINCI Airports avant entretien
 8. Mettre à jour lettre de motivation avec ce projet
