@@ -70,16 +70,29 @@ Optuna : 100 trials sur **MAPE recursive honnête**. `best_params.json` : val 5.
 7. **Tune mauvais régime** : `tune_lightgbm.py` optimisait one-step ; maintenant recursive honnête.
 8. **Params non câblés** : seul tune utilisait Optuna, eval/serve restaient en defaults. `train_lightgbm_global` charge maintenant `best_params.json` (`_load_best_params`). `model.pkl` réentraîné (397 arbres). Une seule config partout.
 
+## Auto-retrain (PSI → trigger) — câblé
+
+`scripts/auto_retrain.py` ferme la boucle monitoring (avant : design only, flèche "manual").
+
+- Compare fenêtre **production** récente (`--prod-months 12`) vs **référence** récente bornée (`--ref-months 36`) — PAS tout l'historique 1998+ (sinon drift trivial sur croissance trafic).
+- Règle déclenchement `monitoring.should_retrain` : 1 feature CRITICAL (PSI≥0.25) OU ≥3 WARNING. Conservateur : 1 warning isolé = bruit.
+- Si trigger → réentraîne LightGBM global sur TOUTES les données (charge `best_params.json`), **swap atomique** du `models/lightgbm_global.pkl` (ancien → `.pkl.bak` pour rollback). Log append `reports/retrain_log.jsonl`, rapport `reports/drift_report.csv`.
+- **PSI seulement sur features stationnaires** (`MONITOR_FEATURES`) : ratios (market share, load factor), croissance (yoy), forme saisonnière (sin/cos), régime macro (oil, FX, chômage). EXCLUT niveaux monotones (lags, rolling means, totals, gdp) — montent avec le trafic, flag chaque mois sans signal de casse modèle. Argument méthodo entretien : PSI a du sens sur stationnaire, pas sur série tendancielle.
+- Flags : `--check-only` (rapport, jamais retrain), `--force` (retrain forcé). Exit 0 = pas de retrain, 1 = retrained.
+- Drift réel actuel détecté : oil 85→67, yoy growth 0.74→0.06 (fin reprise COVID), load factor monté → 4 CRITICAL.
+- Unité qu'un scheduler (cron / Airflow / Kubeflow, TODO #9) appellerait.
+
 ## Structure
 
 ```
 src/airport_forecast/  : api.py, constants.py, dashboard.py, data.py, features.py,
                          logging_config.py, mlflow_tracking.py,
-                         models.py, monitoring.py (PSI drift)
+                         models.py, monitoring.py (PSI drift + should_retrain)
 scripts/               : download_eurostat, process_eurostat, download_macro_v2,
                          eda_full, train_all_models, train_chronos,
-                         tune_lightgbm, compare_recursive, evaluate_horizons
-tests/                 : 30 tests (data, features, models, API, monitoring) — tous pass
+                         tune_lightgbm, compare_recursive, evaluate_horizons,
+                         auto_retrain (PSI → retrain)
+tests/                 : 38 tests (data, features, models, API, monitoring) — tous pass
 reports/figures/       : 25+ plots EDA
 .meta/graphify/        : knowledge graphs (src, scripts, tests, full)
 Dockerfile, docker-compose.yml, .github/workflows/ci.yml, README.md (Mermaid)
@@ -87,7 +100,7 @@ Dockerfile, docker-compose.yml, .github/workflows/ci.yml, README.md (Mermaid)
 
 ## Git
 
-15 commits conventional. Repo local, PAS encore push GitHub.
+Commits conventional. Pushé sur `github.com/Airohh/airport-forecasting` (master). Dernier : `feat: wire PSI drift detection to auto-retrain trigger`.
 
 ## TODO restant
 
@@ -96,9 +109,9 @@ Dockerfile, docker-compose.yml, .github/workflows/ci.yml, README.md (Mermaid)
 3. ~~README avec chiffres honnêtes~~ ✅
 4. ~~Relancer tune (recursive honnête) → best_params.json~~ ✅ val 5.61% / test 4.50%
 5. ~~Relancer evaluate_horizons + compare_recursive, figer CSV~~ ✅ (tuned)
-6. Câbler auto-retrain (PSI → trigger) OU retirer la flèche du diagramme — actuellement design only (diagramme déjà annoté "manual")
+6. ~~Câbler auto-retrain (PSI → trigger)~~ ✅ `scripts/auto_retrain.py` (voir section dédiée)
 7. Optionnel : proxy n_flights meilleur (forward schedule OAG) ou two-stage flight-count forecast pour pousser encore
-8. Push GitHub (`git remote add origin` + push)
+8. ~~Push GitHub~~ ✅ `github.com/Airohh/airport-forecasting` (remote existait déjà)
 9. Optionnel : Kubeflow (gap technique de l'offre)
 10. Lire rapport annuel VINCI Airports avant entretien
 11. MAJ lettre de motivation avec ce projet (insister sur l'honnêteté méthodo : c'est le différenciateur)
