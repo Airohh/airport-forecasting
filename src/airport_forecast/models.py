@@ -18,18 +18,25 @@ class ForecastResult:
     y_true: np.ndarray
     y_pred: np.ndarray
     dates: np.ndarray
+    y_naive: np.ndarray | None = None
     mae: float = 0.0
     rmse: float = 0.0
     mape: float = 0.0
+    bias: float = 0.0
+    mase: float = 0.0
 
     def __post_init__(self):
         self.mae = mean_absolute_error(self.y_true, self.y_pred)
         self.rmse = float(np.sqrt(mean_squared_error(self.y_true, self.y_pred)))
+        self.bias = float(np.mean(self.y_pred - self.y_true))
         mask = self.y_true > 0
         if mask.sum() > 0:
             self.mape = float(np.mean(np.abs(
                 (self.y_true[mask] - self.y_pred[mask]) / self.y_true[mask]
             )) * 100)
+        if self.y_naive is not None:
+            naive_mae = float(np.mean(np.abs(self.y_true - self.y_naive)))
+            self.mase = self.mae / naive_mae if naive_mae > 0 else float("inf")
 
 
 # ─────────────────────────────────────────────
@@ -566,5 +573,7 @@ def results_to_dataframe(results: list[ForecastResult]) -> pd.DataFrame:
             "mae": r.mae,
             "rmse": r.rmse,
             "mape": r.mape,
+            "bias": r.bias,
+            "mase": r.mase,
         })
     return pd.DataFrame(rows)
