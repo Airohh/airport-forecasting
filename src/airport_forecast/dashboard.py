@@ -10,7 +10,12 @@ Tabs:
 from __future__ import annotations
 
 import pickle
+import sys
 from pathlib import Path
+
+# Make `airport_forecast` importable when run directly (e.g. Streamlit Cloud),
+# which puts the script's own dir on sys.path but not the src/ root.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import matplotlib.pyplot as plt
 import numpy as np
