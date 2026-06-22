@@ -62,10 +62,11 @@ def add_rolling_features(
 
 
 def add_yoy_features(df: pd.DataFrame) -> pd.DataFrame:
-    """Year-over-year growth rate."""
+    """Year-over-year growth rate (lagged to avoid target leakage)."""
     out = df.copy()
-    pax_12 = out.groupby("airport")["pax"].shift(12)
-    out["pax_yoy_growth"] = (out["pax"] - pax_12) / pax_12.replace(0, np.nan)
+    pax_1 = out.groupby("airport")["pax"].shift(1)
+    pax_13 = out.groupby("airport")["pax"].shift(13)
+    out["pax_yoy_growth"] = (pax_1 - pax_13) / pax_13.replace(0, np.nan)
     return out
 
 

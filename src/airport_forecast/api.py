@@ -139,22 +139,32 @@ def predict(req: PredictRequest):
 
     if req.model == "lightgbm":
         model, fcols = _load_lgb_model()
-        sub = feat[feat["airport"] == req.airport].sort_values("date").tail(req.horizon)
-        lag_cols = [c for c in sub.columns if "lag" in c or "rolling" in c]
-        sub_clean = sub.dropna(subset=lag_cols)
-        if sub_clean.empty:
-            raise HTTPException(400, "Not enough data for prediction")
+        _, raw = _load_data()
 
-        from airport_forecast.models import predict_lightgbm
-        preds = predict_lightgbm(model, sub_clean, fcols)
-        dates = sub_clean["date"].values
+        sub = raw[raw["airport"] == req.airport].sort_values("date")
+        if sub.empty:
+            raise HTTPException(400, "No data for this airport")
+
+        last_date = sub["date"].max()
+        origin = last_date - pd.DateOffset(months=req.horizon)
+
+        from airport_forecast.models import recursive_forecast_global
+        fc = recursive_forecast_global(
+            model, fcols, raw,
+            origin_date=origin.strftime("%Y-%m-%d"),
+            airports=CORE_AIRPORTS,
+        )
+
+        fc_ap = fc[fc["airport"] == req.airport].sort_values("date")
+        if fc_ap.empty:
+            raise HTTPException(400, "Not enough data for recursive forecast")
 
         predictions = [
             PredictionPoint(
                 date=pd.Timestamp(d).strftime("%Y-%m"),
                 pax_predicted=max(int(p), 0),
             )
-            for d, p in zip(dates, preds)
+            for d, p in zip(fc_ap["date"].values, fc_ap["pax_pred"].values)
         ]
 
     elif req.model == "sarima":

@@ -50,13 +50,15 @@ def test_add_rolling_features(sample_df):
 
 def test_no_leakage_in_rolling(sample_df):
     result = add_rolling_features(sample_df, windows=[3])
-    # Rolling uses shift(1), so the current value should NOT be in its own rolling mean
-    for i in range(3, len(result)):
+    for i in range(4, len(result)):
         rolling_val = result.iloc[i]["pax_rolling_mean_3"]
-        if not np.isnan(rolling_val):
-            current_pax = result.iloc[i]["pax"]
-            prev_3 = result.iloc[i-3:i]["pax"].mean()
-            assert abs(rolling_val - prev_3) < 1e-6 or True  # shift(1) offset
+        if np.isnan(rolling_val):
+            continue
+        # shift(1) + rolling(3) => mean(pax[i-1], pax[i-2], pax[i-3])
+        expected = result.iloc[i - 3 : i]["pax"].mean()
+        assert abs(rolling_val - expected) < 1e-6, (
+            f"Row {i}: rolling_mean_3={rolling_val:.2f} != expected {expected:.2f}"
+        )
 
 
 def test_build_features(sample_df):
