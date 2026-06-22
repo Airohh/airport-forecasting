@@ -182,6 +182,92 @@ def predict_lightgbm(model, df: pd.DataFrame, feature_cols: list[str]) -> np.nda
     return np.maximum(preds, 0)
 
 
+def recursive_forecast_global(
+    model,
+    feature_cols: list[str],
+    enriched_df: pd.DataFrame,
+    origin_date: str,
+    airports: list[str],
+) -> pd.DataFrame:
+    """Honest multi-step forecast: predict month by month, feeding each prediction
+    back as the lag/rolling input for the next month (no peeking at future actuals).
+
+    enriched_df must contain exogenous columns (macro, calendar, events) for the
+    future dates — only PAX-derived features (lags, rolling, yoy, network) are
+    recomputed recursively.
+
+    Returns a DataFrame with columns: airport, date, pax_actual, pax_pred.
+    """
+    from airport_forecast.features import build_features
+
+    origin = pd.Timestamp(origin_date)
+    work = enriched_df[enriched_df["airport"].isin(airports)].copy()
+    work["date"] = pd.to_datetime(work["date"])
+    work = work.sort_values(["airport", "date"]).reset_index(drop=True)
+
+    # Keep ground truth, then blank out future PAX so features are recomputed
+    work["pax_actual"] = work["pax"]
+    future_mask = work["date"] > origin
+    work.loc[future_mask, "pax"] = np.nan
+
+    future_dates = sorted(work.loc[future_mask, "date"].unique())
+
+    for d in future_dates:
+        feat = build_features(work)
+        rows = feat[feat["date"] == d]
+        if rows.empty:
+            continue
+        preds = predict_lightgbm(model, rows, feature_cols)
+        # Write predictions back into the working PAX so they feed next month's lags
+        for ap, p in zip(rows["airport"].values, preds):
+            work.loc[(work["date"] == d) & (work["airport"] == ap), "pax"] = float(p)
+
+    out = work.loc[future_mask, ["airport", "date", "pax_actual"]].copy()
+    out["pax_pred"] = work.loc[future_mask, "pax"].values
+    return out
+
+
+def evaluate_lightgbm_recursive(
+    enriched_df: pd.DataFrame,
+    val_end: str = "2024-12",
+    core_airports: list[str] | None = None,
+) -> tuple[object, list[ForecastResult]]:
+    """Train on data up to val_end, then recursively forecast the test horizon."""
+    from airport_forecast.features import build_features, temporal_train_val_test_split
+
+    airports = core_airports or sorted(enriched_df["airport"].unique().tolist())
+    feat = build_features(enriched_df)
+    feat_core = feat[feat["airport"].isin(airports)].copy()
+
+    # Train on everything up to val_end (train + val combined)
+    train, val, test = temporal_train_val_test_split(feat_core, val_end, val_end)
+    lag_cols = [c for c in feat_core.columns if "lag" in c or "rolling" in c]
+    trainval = pd.concat([train, val]).dropna(subset=lag_cols)
+
+    model, feature_cols = train_lightgbm_global(trainval, None)
+
+    # Recursive forecast over the test horizon
+    fc = recursive_forecast_global(
+        model, feature_cols, enriched_df, origin_date=val_end, airports=airports
+    )
+
+    results = []
+    for ap in airports:
+        sub = fc[fc["airport"] == ap].dropna(subset=["pax_actual", "pax_pred"])
+        if sub.empty:
+            continue
+        results.append(ForecastResult(
+            model_name="LightGBM_Recursive",
+            airport=ap,
+            horizon=len(sub),
+            y_true=sub["pax_actual"].values.astype(float),
+            y_pred=sub["pax_pred"].values.astype(float),
+            dates=sub["date"].values,
+        ))
+
+    return model, results
+
+
 def evaluate_lightgbm_global(
     feat: pd.DataFrame,
     train_end: str = "2023-12",
