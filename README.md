@@ -41,7 +41,8 @@ graph TD
 
     subgraph Monitoring
         V --> Y[PSI Drift Detection]
-        Y -.planned.-> Z[Retrain trigger - manual]
+        Y --> Z[Auto-retrain trigger]
+        Z --> Q
     end
 ```
 
@@ -266,7 +267,7 @@ In VINCI's Smart Data Hub context, these forecasts would feed into:
 ## Limitations & Next Steps
 
 - **Flight data as exogenous input**: `n_flights` is a top predictor but its future values are unknown at forecast time. The pipeline substitutes a seasonal-naive proxy (no leakage). In production, airlines publish schedules 6+ months ahead (OAG, Cirium); feeding those, or a dedicated two-stage flight-count forecast model, would push accuracy further.
-- **Retrain trigger is manual**: PSI drift detection (`monitoring.py`) flags drift but does not yet auto-trigger retraining — the "auto-retrain" arrow in the architecture diagram is the intended design, not wired. Needs an orchestrator (see below).
+- **Retrain trigger is wired**: `scripts/auto_retrain.py` closes the PSI-drift → retrain loop. It compares the recent production window against a bounded recent reference, applies a conservative trigger rule (`monitoring.should_retrain`: any feature CRITICAL at PSI ≥ 0.25, or ≥ 3 WARNING), and on trigger retrains the global LightGBM on all data with an atomic model swap (old model backed up to `.pkl.bak` for rollback). Each run appends to `reports/retrain_log.jsonl`. PSI is computed only on roughly stationary features (ratios, growth, seasonality shape, macro regime) — raw level features (lags, rolling means, totals) trend upward as the network grows and would flag every month without signalling model-breaking drift. The script is the unit a scheduler (cron / Airflow / Kubeflow) would call.
 - **Macro extrapolation**: recursive forecasts beyond available macro data require forward-filling exchange rates, oil prices, and GDP. A production system would integrate macro forecasts (ECB projections, futures curves).
 - **No Kubeflow/Airflow orchestration**: the pipeline runs as scripts. A production deployment would use Kubeflow Pipelines or Airflow for scheduling, versioning, and automated retraining.
 - **Chronos stability**: Chronos shows high variance across airports (1.9% Lisbon vs 66.6% on a single validation window). Fine-tuning on aviation data could stabilize it.
@@ -294,10 +295,10 @@ airport-forecasting/
 │   ├── features.py         Feature engineering (33 features)
 │   ├── models.py           SARIMA, LightGBM, Prophet, Chronos, Ensemble
 │   ├── mlflow_tracking.py  MLflow experiment logging
-│   ├── monitoring.py       PSI drift detection
+│   ├── monitoring.py       PSI drift detection + retrain decision
 │   └── logging_config.py   Logging setup
-├── scripts/                Data download, EDA, training, evaluation
-├── tests/                  33 tests (data, features, models, API, monitoring)
+├── scripts/                Data download, EDA, training, evaluation, auto_retrain
+├── tests/                  38 tests (data, features, models, API, monitoring)
 ├── data/                   Raw + processed datasets
 ├── reports/                Results CSV, horizon analysis, 25 EDA plots
 ├── Dockerfile

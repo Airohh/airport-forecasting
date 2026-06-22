@@ -71,6 +71,46 @@ def monitor_drift(
     return pd.DataFrame(results).sort_values("psi", ascending=False).reset_index(drop=True)
 
 
+def should_retrain(
+    drift_report: pd.DataFrame,
+    n_warning_to_retrain: int = 3,
+) -> dict:
+    """Decide whether drift warrants a retrain from a `monitor_drift` report.
+
+    Trigger rule (conservative, auditable):
+      - ANY feature CRITICAL (PSI >= 0.25)  -> retrain
+      - OR >= `n_warning_to_retrain` features WARNING (0.1 <= PSI < 0.25) -> retrain
+
+    A single moderate warning is noise (seasonality, one new event); a cluster of
+    warnings or one hard break is a real distribution shift.
+    """
+    if drift_report.empty:
+        return {"retrain": False, "reason": "no comparable features", "n_critical": 0, "n_warning": 0, "drivers": []}
+
+    n_critical = int((drift_report["status"] == "CRITICAL").sum())
+    n_warning = int((drift_report["status"] == "WARNING").sum())
+    critical = drift_report[drift_report["status"] == "CRITICAL"]["feature"].tolist()
+    warning = drift_report[drift_report["status"] == "WARNING"]["feature"].tolist()
+
+    if n_critical > 0:
+        return {
+            "retrain": True,
+            "reason": f"{n_critical} feature(s) CRITICAL (PSI>=0.25)",
+            "n_critical": n_critical, "n_warning": n_warning, "drivers": critical,
+        }
+    if n_warning >= n_warning_to_retrain:
+        return {
+            "retrain": True,
+            "reason": f"{n_warning} feature(s) WARNING (>= {n_warning_to_retrain} threshold)",
+            "n_critical": 0, "n_warning": n_warning, "drivers": warning,
+        }
+    return {
+        "retrain": False,
+        "reason": f"{n_warning} warning(s), 0 critical — below trigger",
+        "n_critical": 0, "n_warning": n_warning, "drivers": warning,
+    }
+
+
 def check_prediction_drift(
     y_true: np.ndarray,
     y_pred: np.ndarray,

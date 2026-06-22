@@ -14,3 +14,9 @@ mlruns/
 *.parquet
 .ipynb_checkpoints/
 .ruff_cache/
+.cursor/
+.meta/
+.pytest_cache/
+*.pkl.bak
+*.pkl.tmp
+reports/retrain_log.jsonl

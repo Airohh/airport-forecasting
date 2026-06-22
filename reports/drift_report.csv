@@ -1,0 +1,13 @@
+feature,psi,status,ref_mean,prod_mean,ref_std,prod_std
+oil_price_usd,11.6716,CRITICAL,85.21,66.88,10.92,5.1
+pax_yoy_growth,5.1966,CRITICAL,0.74,0.06,1.9,0.05
+unemployment_rate,2.4945,CRITICAL,9.89,9.77,1.58,1.57
+pax_per_flight_lag1,0.9027,CRITICAL,137.35,146.25,21.4,22.0
+month_cos,0.2043,WARNING,-0.0,-0.16,0.71,0.71
+month_sin,0.1564,WARNING,-0.0,-0.22,0.71,0.65
+country_market_share,0.1075,WARNING,0.67,0.69,0.27,0.27
+n_holidays,0.0501,OK,1.05,1.2,1.15,1.09
+is_summer,0.0292,OK,0.25,0.33,0.43,0.47
+network_rank,0.0198,OK,3.5,3.29,1.71,1.73
+exchange_rate,0.0193,OK,85.63,105.41,143.83,157.38
+is_school_vacation,0.004,OK,0.33,0.36,0.47,0.48
