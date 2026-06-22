@@ -1,0 +1,22 @@
+services:
+  api:
+    build: .
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./data/processed:/app/data/processed:ro
+      - ./reports:/app/reports:ro
+      - ./models:/app/models
+    environment:
+      - PYTHONUNBUFFERED=1
+
+  dashboard:
+    build: .
+    command: streamlit run src/airport_forecast/dashboard.py --server.port 8501 --server.headless true
+    ports:
+      - "8501:8501"
+    volumes:
+      - ./data/processed:/app/data/processed:ro
+      - ./reports:/app/reports:ro
+    depends_on:
+      - api
