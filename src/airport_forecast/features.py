@@ -107,14 +107,25 @@ def add_network_features(df: pd.DataFrame) -> pd.DataFrame:
     return out
 
 
+def add_supply_features(df: pd.DataFrame) -> pd.DataFrame:
+    """Lag airline supply features to avoid using future information."""
+    out = df.copy()
+    if "n_flights" in out.columns:
+        out["n_flights"] = out.groupby("airport")["n_flights"].shift(1)
+    if "pax_per_flight" in out.columns:
+        out["pax_per_flight"] = out.groupby("airport")["pax_per_flight"].shift(1)
+    return out
+
+
 def build_features(df: pd.DataFrame) -> pd.DataFrame:
-    """Full feature pipeline: time + lags + rolling + YoY + network. Input must have date + airport + pax."""
+    """Full feature pipeline: time + lags + rolling + YoY + network + supply. Input must have date + airport + pax."""
     out = df.sort_values(["airport", "date"]).reset_index(drop=True)
     out = add_time_features(out)
     out = add_lag_features(out)
     out = add_rolling_features(out)
     out = add_yoy_features(out)
     out = add_network_features(out)
+    out = add_supply_features(out)
     return out
 
 

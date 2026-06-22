@@ -73,7 +73,7 @@ def check_prediction_drift(
     bias = float(np.mean(y_pred - y_true))
 
     status = "OK"
-    if mae_threshold and mae > mae_threshold:
+    if mae_threshold is not None and mae > mae_threshold:
         status = "DEGRADED"
 
     return {

@@ -501,6 +501,62 @@ for c in ["unemployment_rate", "gdp", "oil_price_usd", "exchange_rate"]:
     ok = feat[c].notna().sum()
     print(f"  {c}: {ok}/{len(feat)} ({ok/len(feat)*100:.0f}%)")
 
+# ══════════════════════════════════════════════════════════
+# 23. Flight movements over time
+# ══════════════════════════════════════════════════════════
+if "n_flights" in df.columns:
+    print("  Plot 23 - Flight movements over time")
+    fig, ax = plt.subplots(figsize=(14, 6))
+    for i, code in enumerate(CORE):
+        sub = df[df["airport"] == code]
+        ax.plot(sub["date"], sub["n_flights"], label=SHORT[code], color=COLORS[i])
+    ax.axvspan(pd.Timestamp("2020-03-01"), pd.Timestamp("2022-06-01"),
+               alpha=0.1, color="red", label="COVID")
+    ax.set_ylabel("Commercial flights / month")
+    ax.set_title("Monthly Flight Movements by Airport")
+    ax.legend()
+    fig.tight_layout()
+    fig.savefig(FIGS / "23_flight_movements.png", dpi=150)
+    plt.close()
+
+    # ══════════════════════════════════════════════════════════
+    # 24. PAX vs n_flights scatter
+    # ══════════════════════════════════════════════════════════
+    print("  Plot 24 - PAX vs flight movements")
+    fig, axes = plt.subplots(2, 3, figsize=(16, 10))
+    for i, code in enumerate(CORE):
+        ax = axes[i // 3, i % 3]
+        sub = df[df["airport"] == code].dropna(subset=["n_flights", "pax"])
+        ax.scatter(sub["n_flights"], sub["pax"] / 1e6, alpha=0.4, s=15, color=COLORS[i])
+        corr = sub["n_flights"].corr(sub["pax"])
+        ax.set_title(f"{SHORT[code]} (r={corr:.2f})")
+        ax.set_xlabel("Flights/month")
+        ax.set_ylabel("PAX (M)")
+        z = np.polyfit(sub["n_flights"], sub["pax"] / 1e6, 1)
+        x_line = np.linspace(sub["n_flights"].min(), sub["n_flights"].max(), 100)
+        ax.plot(x_line, np.polyval(z, x_line), "r--", alpha=0.7)
+    fig.suptitle("Passenger Traffic vs Flight Movements", fontsize=14)
+    fig.tight_layout()
+    fig.savefig(FIGS / "24_pax_vs_flights.png", dpi=150)
+    plt.close()
+
+    # ══════════════════════════════════════════════════════════
+    # 25. PAX per flight (load factor proxy) over time
+    # ══════════════════════════════════════════════════════════
+    print("  Plot 25 - PAX per flight over time")
+    fig, ax = plt.subplots(figsize=(14, 6))
+    for i, code in enumerate(CORE):
+        sub = df[df["airport"] == code].dropna(subset=["pax_per_flight"])
+        ax.plot(sub["date"], sub["pax_per_flight"], label=SHORT[code], color=COLORS[i], alpha=0.8)
+    ax.axvspan(pd.Timestamp("2020-03-01"), pd.Timestamp("2022-06-01"),
+               alpha=0.1, color="red", label="COVID")
+    ax.set_ylabel("Passengers per flight")
+    ax.set_title("Load Factor Proxy: PAX per Flight Movement")
+    ax.legend()
+    fig.tight_layout()
+    fig.savefig(FIGS / "25_pax_per_flight.png", dpi=150)
+    plt.close()
+
 print(f"\n{'='*60}")
-print(f"TOTAL: 22 plots saved to {FIGS}")
+print(f"TOTAL: 25 plots saved to {FIGS}")
 print(f"{'='*60}")

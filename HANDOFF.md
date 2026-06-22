@@ -16,7 +16,7 @@ Dossier candidature : `TRAVAIL\candidatures\VINCI Airports` (lettre + CV + offre
 - **2 exclus** (data stop 2020, Brexit) : Gatwick, Edinburgh — gardés en EDA seulement
 - **Enrichissement macro** : chômage (Eurostat), PIB (Eurostat), Brent oil (FRED), taux change EUR/HUF EUR/GBP (ECB), holidays (package), événements manuels (COVID, guerre Ukraine, JO 2024, Web Summit)
 - Dataset final : `data/processed/pax_enriched.parquet` — 1988 rows, 14 cols
-- **31 features** après `build_features` : lags(1,2,3,6,12), rolling mean/std(3,6,12), YoY (lagged), calendrier cyclique, macro, événements, network (market share, rank)
+- **33 features** après `build_features` : lags(1,2,3,6,12), rolling mean/std(3,6,12), YoY (lagged), calendrier cyclique, macro, événements, network (market share, rank), airline supply (n_flights, pax_per_flight — lagged)
 
 ## Modèles (5)
 
@@ -28,10 +28,10 @@ SARIMA, LightGBM Global, LightGBM Local, Prophet, Chronos (Amazon zero-shot), + 
 
 | Horizon | LGB Recursive | SARIMA | Usage |
 |---------|--------------|--------|-------|
-| M+1 | **3.2%** | 6.0% | staffing, gates |
-| M+3 | **3.9%** | 5.2% | capacity planning |
+| M+1 | **2.9%** | 6.0% | staffing, gates |
+| M+3 | **4.2%** | 5.2% | capacity planning |
 | M+6 | **3.7%** | 6.0% | route planning |
-| M+12 | 7.4% | **5.2%** | budget, contracts |
+| M+12 | 6.3% | **5.2%** | budget, contracts |
 
 Point clé : LightGBM domine M+1 à M+6, SARIMA gagne M+12 (error accumulation récursive).
 
@@ -39,7 +39,7 @@ Point clé : LightGBM domine M+1 à M+6, SARIMA gagne M+12 (error accumulation r
 
 | Model | Avg MAPE |
 |-------|----------|
-| LightGBM Global | 4.5% (4.1% tuné) |
+| LightGBM Global | 4.4% |
 | SARIMA | 5.5% |
 | LightGBM Local | 7.4% |
 | Chronos | 11.0% |

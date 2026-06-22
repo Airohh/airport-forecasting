@@ -53,31 +53,31 @@ The key question in production is not "which model is best overall?" but **"whic
 
 | Horizon | LightGBM Recursive | SARIMA | Best for |
 |---------|-------------------|--------|----------|
-| **M+1** | **1.6%** | 6.0% | Staffing, gates |
-| **M+3** | **2.4%** | 5.2% | Capacity planning |
-| **M+6** | **2.3%** | 6.0% | Route planning |
-| **M+12** | **2.7%** | 5.2% | Budget, contracts |
+| **M+1** | **2.9%** | 6.0% | Staffing, gates |
+| **M+3** | **4.2%** | 5.2% | Capacity planning |
+| **M+6** | **3.7%** | 6.0% | Route planning |
+| **M+12** | 6.3% | **5.2%** | Budget, contracts |
 
-LightGBM Recursive dominates all horizons with 1.6–2.7% MAPE. Adding airline supply features (`n_flights`, `pax_per_flight`) dramatically stabilized recursive predictions — Porto M+12 dropped from 20.6% to 1.6% MAPE.
+LightGBM Recursive dominates short-to-medium term (M+1 to M+6) with 2.9–4.2% MAPE. SARIMA is more stable at M+12 because recursive error accumulation degrades ML predictions over long horizons. Airline supply features (`n_flights`, `pax_per_flight`) are lagged by one month to reflect real-world availability.
 
 ### Per Airport (Test Set 2025+, one-step)
 
 | Airport | LightGBM Global | SARIMA | Chronos | Prophet |
 |---------|----------------|--------|---------|---------|
-| Lyon | 3.0% | 4.1% | 2.6% | 14.3% |
-| Nantes | 5.4% | 5.3% | 4.5% | 13.0% |
-| Budapest | 7.2% | 7.9% | 4.0% | 29.7% |
-| Lisbon | 2.9% | 3.6% | 1.9% | 17.4% |
-| Porto | 4.0% | 5.3% | 3.6% | 18.5% |
-| Belgrade | 3.4% | 6.9% | 3.6% | 7.4% |
+| Lyon | 3.9% | 4.1% | 2.6% | 14.3% |
+| Nantes | 4.8% | 5.3% | 4.5% | 13.0% |
+| Budapest | 5.8% | 7.9% | 4.0% | 29.7% |
+| Lisbon | 5.8% | 3.6% | 1.9% | 17.4% |
+| Porto | 3.7% | 5.3% | 3.6% | 18.5% |
+| Belgrade | 4.2% | 6.9% | 3.6% | 7.4% |
 
 ### Top Features (LightGBM Global)
 
-1. `n_flights` — commercial flight movements (1380 splits)
-2. `pax_per_flight` — load factor proxy (1277)
-3. `pax_lag_12` — same month last year (794)
-4. `pax_lag_1` — previous month (592)
-5. `oil_price_usd` — Brent crude oil price (479)
+1. `pax_lag_12` — same month last year (477 splits)
+2. `pax_lag_1` — previous month (358)
+3. `oil_price_usd` — Brent crude oil price (285)
+4. `pax_yoy_growth` — year-over-year momentum (265)
+5. `month_cos` — seasonal encoding (257)
 
 ## Evaluation Methodology
 
@@ -177,9 +177,9 @@ curl -X POST http://localhost:8000/predict \
 
 1. **Global model beats local models** on 5/6 airports — cross-learning between airports works. This validates the centralized Smart Data Hub approach.
 
-2. **Airline supply data is the strongest signal.** `n_flights` (flight movements) and `pax_per_flight` (load factor) are the top 2 features by importance. Adding supply-side data cut recursive M+12 MAPE from 7.4% to 2.7%.
+2. **Horizon matters more than model choice.** LightGBM Recursive at M+1 (2.9%) and SARIMA at M+12 (5.2%) outperform any single model across all horizons. A production system should route by horizon.
 
-3. **LightGBM Recursive dominates all horizons** — 1.6% at M+1, 2.7% at M+12. Supply features anchor recursive predictions, preventing the error accumulation that previously degraded long-horizon forecasts.
+3. **Airline supply features add signal.** Lagged `n_flights` and `pax_per_flight` from Eurostat provide supply-side information (airline capacity). All supply features are lagged to reflect real-world availability — no future data leakage.
 
 4. **Prophet fails on post-COVID recovery** — it extrapolates pre-COVID trend instead of capturing the recovery pattern. LightGBM with explicit `is_covid` flag handles this correctly.
 

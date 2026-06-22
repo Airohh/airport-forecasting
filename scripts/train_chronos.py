@@ -46,6 +46,7 @@ if not all_results:
 # Merge with existing results
 df_new = results_to_dataframe(all_results)
 existing = pd.read_csv(REPORTS / "model_results.csv")
+existing = existing[existing["model"] != "Chronos"]
 combined = pd.concat([existing, df_new], ignore_index=True)
 combined.to_csv(REPORTS / "model_results.csv", index=False)
 
