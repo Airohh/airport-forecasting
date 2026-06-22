@@ -290,7 +290,7 @@ airport-forecasting/
 │   ├── monitoring.py       PSI drift detection
 │   └── logging_config.py   Logging setup
 ├── scripts/                Data download, EDA, training, evaluation
-├── tests/                  30 tests (data, features, models, API, monitoring)
+├── tests/                  33 tests (data, features, models, API, monitoring)
 ├── data/                   Raw + processed datasets
 ├── reports/                Results CSV, horizon analysis, 25 EDA plots
 ├── Dockerfile
