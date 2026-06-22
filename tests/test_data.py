@@ -3,8 +3,8 @@
 import pandas as pd
 import pytest
 
-from airport_forecast.data import load_pax
-from airport_forecast.constants import VINCI_AIRPORTS
+from airport_forecast.data import load_pax, load_enriched
+from airport_forecast.constants import VINCI_AIRPORTS, CORE_AIRPORTS
 
 
 def test_load_pax_shape():
@@ -39,6 +39,26 @@ def test_load_pax_airports_are_vinci():
 
 def test_load_pax_date_sorted():
     df = load_pax(with_holidays=False)
+    for _, grp in df.groupby("airport"):
+        dates = grp["date"].values
+        assert (dates[1:] >= dates[:-1]).all()
+
+
+def test_load_enriched_schema():
+    df = load_enriched()
+    for col in ["airport", "date", "pax", "n_flights", "pax_per_flight"]:
+        assert col in df.columns, f"Missing column: {col}"
+    assert len(df) > 0
+
+
+def test_load_enriched_core_airports():
+    df = load_enriched()
+    for code in CORE_AIRPORTS:
+        assert code in df["airport"].values, f"Missing airport: {code}"
+
+
+def test_load_enriched_sorted():
+    df = load_enriched()
     for _, grp in df.groupby("airport"):
         dates = grp["date"].values
         assert (dates[1:] >= dates[:-1]).all()

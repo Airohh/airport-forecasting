@@ -11,6 +11,7 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 
 from airport_forecast.constants import VINCI_AIRPORTS, HORIZONS, SHORT_NAMES, CORE_AIRPORTS
+from airport_forecast.data import load_enriched
 from airport_forecast.features import build_features
 
 app = FastAPI(
@@ -68,8 +69,7 @@ _model_cache = {}
 
 def _load_data():
     if "feat" not in _data_cache:
-        pax = pd.read_parquet(DATA_DIR / "pax_enriched.parquet")
-        pax["date"] = pd.to_datetime(pax["date"])
+        pax = load_enriched()
         feat = build_features(pax)
         _data_cache["feat"] = feat
         _data_cache["raw"] = pax
