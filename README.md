@@ -60,6 +60,58 @@ The key question in production is not "which model is best overall?" but **"whic
 
 LightGBM Recursive dominates short-to-medium term (M+1 to M+6) with 2.9–4.2% MAPE. SARIMA is more stable at M+12 because recursive error accumulation degrades ML predictions over long horizons. Airline supply features (`n_flights`, `pax_per_flight`) are lagged by one month to reflect real-world availability.
 
+### Does the model actually beat a naive baseline?
+
+MASE (Mean Absolute Scaled Error) compares each model to a **naive seasonal baseline** — "same month last year." MASE < 1 means the model adds value over a simple lookup.
+
+| Horizon | LightGBM MASE | SARIMA MASE | Naive MAPE |
+|---------|--------------|-------------|------------|
+| M+1 | **0.88** | 1.73 | 6.2% |
+| M+3 | 1.29 | 1.30 | 5.7% |
+| M+6 | **0.64** | 1.09 | 6.3% |
+| M+12 | 1.11 | **0.89** | 6.5% |
+
+LightGBM beats the naive baseline at M+1 and M+6 (MASE < 1). At M+12, SARIMA beats naive (0.89) while LightGBM is marginal (1.11). The naive baseline itself averages 6.2% MAPE — already decent because `pax_lag_12` captures annual seasonality.
+
+### Forecast bias
+
+Bias = mean signed error (positive = overestimation). In airport operations, slight overestimation is preferable to underestimation (overstaffing costs less than passenger queue complaints).
+
+| Horizon | LightGBM Bias | SARIMA Bias | Naive Bias |
+|---------|--------------|-------------|------------|
+| M+1 | +15,800 PAX | +45,800 | −72,600 |
+| M+3 | +30,900 | +27,900 | −53,600 |
+| M+6 | +4,000 | −29,000 | −74,900 |
+| M+12 | +42,000 | −15,400 | −96,900 |
+
+LightGBM has a slight positive bias (overestimates) — operationally safer. The naive baseline strongly underestimates because traffic is growing year-over-year.
+
+### Cross-validation stability (3-fold expanding window)
+
+A single train/test split can be misleading. We validate on three temporal folds:
+
+| Fold | Train period | Test period | LGB MAPE | SARIMA MAPE |
+|------|-------------|-------------|----------|-------------|
+| 1 | →2022-12 | 2023 | 5.7% | 10.0% |
+| 2 | →2023-12 | 2024 | 7.1% | 8.6% |
+| 3 | →2024-12 | 2025+ | 4.3% | 5.6% |
+| **Avg** | | | **5.7%** | **8.1%** |
+
+LightGBM outperforms SARIMA in all 3 folds. Fold 1 (testing on 2023, the COVID recovery year) shows the largest gap — LightGBM handles regime changes better thanks to explicit event features.
+
+### Prediction intervals (quantile regression)
+
+LightGBM quantile regression provides 80% prediction intervals (P10–P90):
+
+| Airport | Coverage | Interval Width |
+|---------|----------|---------------|
+| Lyon | 73% | ±50k PAX |
+| Budapest | 67% | ±82k PAX |
+| Belgrade | 50% | ±28k PAX |
+| **Overall** | **52%** | **±72k PAX** |
+
+Current coverage (52%) is below the 80% target — the model is overconfident. Next step: conformal prediction calibration to guarantee coverage.
+
 ### Per Airport (Test Set 2025+, one-step)
 
 | Airport | LightGBM Global | SARIMA | Chronos | Prophet |
