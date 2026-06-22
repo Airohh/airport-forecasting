@@ -124,6 +124,21 @@ FEATURE_COLS = [
 ]
 
 
+def _load_best_params() -> dict:
+    """Load Optuna-tuned hyperparameters from reports/best_params.json if present."""
+    import json
+    from pathlib import Path
+
+    path = Path(__file__).resolve().parent.parent.parent / "reports" / "best_params.json"
+    if not path.exists():
+        return {}
+    try:
+        with open(path) as f:
+            return json.load(f).get("best_params", {})
+    except (json.JSONDecodeError, OSError):
+        return {}
+
+
 def train_lightgbm_global(
     train_df: pd.DataFrame,
     val_df: pd.DataFrame | None = None,
@@ -161,6 +176,9 @@ def train_lightgbm_global(
         "verbose": -1,
         "n_jobs": -1,
     }
+    # Use Optuna-tuned params (honest recursive objective) when available, so
+    # eval / serve / tune all share one configuration.
+    params.update(_load_best_params())
 
     callbacks = [lgb.log_evaluation(0)]
     if val_df is not None and len(val_df) > 0:
@@ -190,19 +208,66 @@ def predict_lightgbm(model, df: pd.DataFrame, feature_cols: list[str]) -> np.nda
     return np.maximum(preds, 0)
 
 
+# Exogenous columns and how they are assumed-known at forecast time.
+# seasonal naive (same month last year) — calendar + airline supply (published schedules)
+SEASONAL_EXOG_COLS = ["n_holidays", "is_school_vacation", "n_flights", "pax_per_flight"]
+# carried forward (last known state) — macro levels + ongoing event flags
+CARRY_EXOG_COLS = [
+    "unemployment_rate", "oil_price_usd", "exchange_rate", "gdp",
+    "event_covid", "event_ukraine_war", "event_major_sport", "event_conference",
+]
+
+
+def assume_future_exog(
+    df: pd.DataFrame,
+    origin: pd.Timestamp,
+    airports: list[str],
+) -> pd.DataFrame:
+    """Overwrite exogenous columns for dates AFTER `origin` with values that would
+    actually be available at forecast time — so the model never peeks at real
+    future macro/flights. seasonal naive for SEASONAL_EXOG_COLS, last-known carry
+    for CARRY_EXOG_COLS. This is what makes recursive forecasts genuinely honest.
+    """
+    out = df.copy()
+    origin = pd.Timestamp(origin)
+    for ap in airports:
+        m = out["airport"] == ap
+        sub = out[m].set_index("date").sort_index()
+        fut_idx = sub.index[sub.index > origin]
+        if len(fut_idx) == 0:
+            continue
+        hist = sub[sub.index <= origin]
+        for c in CARRY_EXOG_COLS:
+            if c in sub.columns:
+                last = hist[c].dropna()
+                val = last.iloc[-1] if len(last) else np.nan
+                out.loc[m & (out["date"] > origin), c] = val
+        for c in SEASONAL_EXOG_COLS:
+            if c in sub.columns:
+                for d in fut_idx:
+                    v = sub[c].get(d - pd.DateOffset(months=12), np.nan)
+                    if pd.isna(v):
+                        last = hist[c].dropna()
+                        v = last.iloc[-1] if len(last) else np.nan
+                    out.loc[m & (out["date"] == d), c] = v
+    return out
+
+
 def recursive_forecast_global(
     model,
     feature_cols: list[str],
     enriched_df: pd.DataFrame,
     origin_date: str,
     airports: list[str],
+    honest_exog: bool = True,
 ) -> pd.DataFrame:
     """Honest multi-step forecast: predict month by month, feeding each prediction
     back as the lag/rolling input for the next month (no peeking at future actuals).
 
-    enriched_df must contain exogenous columns (macro, calendar, events) for the
-    future dates — only PAX-derived features (lags, rolling, yoy, network) are
-    recomputed recursively.
+    With honest_exog=True (default), exogenous columns (macro, airline supply,
+    event flags) for future dates are replaced by assume_future_exog so the
+    forecast uses only information available at the origin — not real future
+    macro/flight values. Set False only for diagnostics.
 
     Returns a DataFrame with columns: airport, date, pax_actual, pax_pred.
     """
@@ -217,6 +282,10 @@ def recursive_forecast_global(
     work["pax_actual"] = work["pax"]
     future_mask = work["date"] > origin
     work.loc[future_mask, "pax"] = np.nan
+
+    # Replace future exogenous values with assumed-known proxies (no leakage)
+    if honest_exog:
+        work = assume_future_exog(work, origin, airports)
 
     future_dates = sorted(work.loc[future_mask, "date"].unique())
 
@@ -233,6 +302,65 @@ def recursive_forecast_global(
     out = work.loc[future_mask, ["airport", "date", "pax_actual"]].copy()
     out["pax_pred"] = work.loc[future_mask, "pax"].values
     return out
+
+
+def make_future_enriched(
+    enriched_df: pd.DataFrame,
+    airports: list[str],
+    horizon: int,
+) -> tuple[pd.DataFrame, pd.Timestamp]:
+    """Append `horizon` empty future months (per airport) so the model can forecast
+    PAST the end of history (not backcast it). Future PAX is left NaN and future
+    exogenous values are filled later by assume_future_exog inside the recursive
+    forecast — keeping a single source of truth for the exog assumptions.
+
+    Forecast origin = the EARLIEST last-actual date across `airports` (so every
+    airport shares an aligned, gap-free future window — network features need all
+    airports present at each future month).
+
+    Returns (enriched_df + skeleton future rows with pax=NaN, origin_date).
+    """
+    df = enriched_df[enriched_df["airport"].isin(airports)].copy()
+    df["date"] = pd.to_datetime(df["date"])
+
+    origin = df.groupby("airport")["date"].max().min()
+    future_dates = pd.date_range(origin, periods=horizon + 1, freq="MS")[1:]
+
+    new_rows = []
+    for ap in airports:
+        sub = df[df["airport"] == ap]
+        if sub.empty:
+            continue
+        name = sub["airport_name"].iloc[-1] if "airport_name" in sub.columns else None
+        for d in future_dates:
+            row = {"airport": ap, "date": d, "pax": np.nan}
+            if name is not None:
+                row["airport_name"] = name
+            new_rows.append(row)
+
+    if not new_rows:
+        return df, origin
+    out = pd.concat([df, pd.DataFrame(new_rows)], ignore_index=True)
+    out = out.sort_values(["airport", "date"]).reset_index(drop=True)
+    return out, origin
+
+
+def forecast_future_global(
+    model,
+    feature_cols: list[str],
+    enriched_df: pd.DataFrame,
+    airports: list[str],
+    horizon: int,
+) -> pd.DataFrame:
+    """Genuine out-of-sample forecast: extend history with future exog rows, then
+    recurse. Unlike a backcast, every returned date is strictly after the last
+    available actual. Returns columns: airport, date, pax_pred."""
+    future_df, origin = make_future_enriched(enriched_df, airports, horizon)
+    fc = recursive_forecast_global(
+        model, feature_cols, future_df,
+        origin_date=origin.strftime("%Y-%m-%d"), airports=airports,
+    )
+    return fc[fc["date"] > origin][["airport", "date", "pax_pred"]].reset_index(drop=True)
 
 
 def evaluate_lightgbm_recursive(

@@ -12,15 +12,24 @@ def psi(reference: np.ndarray, production: np.ndarray, bins: int = 10) -> float:
     PSI < 0.1  : no drift
     0.1 <= PSI < 0.25 : moderate drift (warning)
     PSI >= 0.25 : significant drift (retrain)
+
+    Bin edges are reference quantiles (standard PSI). Production never defines
+    the edges — outliers fall into the open end bins (+/-inf), so a new extreme
+    production value cannot silently reshape the bins and mask drift.
     """
     eps = 1e-6
-    breakpoints = np.linspace(
-        min(reference.min(), production.min()) - eps,
-        max(reference.max(), production.max()) + eps,
-        bins + 1,
-    )
-    ref_counts = np.histogram(reference, bins=breakpoints)[0] / len(reference) + eps
-    prod_counts = np.histogram(production, bins=breakpoints)[0] / len(production) + eps
+    ref = np.asarray(reference, dtype=float)
+    prod = np.asarray(production, dtype=float)
+
+    # Quantile (equal-frequency) breakpoints from the reference only.
+    edges = np.unique(np.quantile(ref, np.linspace(0, 1, bins + 1)))
+    if len(edges) < 3:
+        # Near-constant reference: fall back to equal-width on reference range.
+        edges = np.linspace(ref.min(), ref.max(), bins + 1)
+    edges[0], edges[-1] = -np.inf, np.inf
+
+    ref_counts = np.histogram(ref, bins=edges)[0] / len(ref) + eps
+    prod_counts = np.histogram(prod, bins=edges)[0] / len(prod) + eps
 
     return float(np.sum((prod_counts - ref_counts) * np.log(prod_counts / ref_counts)))
 

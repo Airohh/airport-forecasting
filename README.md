@@ -41,7 +41,7 @@ graph TD
 
     subgraph Monitoring
         V --> Y[PSI Drift Detection]
-        Y --> Z[Auto-retrain trigger]
+        Y -.planned.-> Z[Retrain trigger - manual]
     end
 ```
 
@@ -51,14 +51,18 @@ graph TD
 
 The key question in production is not "which model is best overall?" but **"which model at which horizon?"** Short-term (M+1–M+3) serves staffing and gate allocation; long-term (M+6–M+12) serves budgeting and route planning.
 
+All recursive numbers below are **honest**: at forecast time future exogenous values are *not* taken from actuals — airline supply (`n_flights`, `pax_per_flight`) and calendar use a seasonal-naive proxy (same month last year), macro levels and event flags are carried forward. The model is hyperparameter-tuned (Optuna) directly on this honest recursive objective. Same regime in evaluation, tuning and the served API.
+
 | Horizon | LightGBM Recursive | SARIMA | Best for |
 |---------|-------------------|--------|----------|
-| **M+1** | **2.9%** | 6.0% | Staffing, gates |
-| **M+3** | **4.2%** | 5.2% | Capacity planning |
-| **M+6** | **3.7%** | 6.0% | Route planning |
-| **M+12** | 6.3% | **5.2%** | Budget, contracts |
+| **M+1** | **3.5%** | 6.0% | Staffing, gates |
+| **M+3** | **4.1%** | 5.2% | Capacity planning |
+| **M+6** | **3.8%** | 6.0% | Route planning |
+| **M+12** | **3.9%** | 5.2% | Budget, contracts |
 
-LightGBM Recursive dominates short-to-medium term (M+1 to M+6) with 2.9–4.2% MAPE. SARIMA is more stable at M+12 because recursive error accumulation degrades ML predictions over long horizons. Airline supply features (`n_flights`, `pax_per_flight`) are lagged by one month to reflect real-world availability.
+LightGBM Recursive beats SARIMA at every horizon, including M+12 (3.9% vs 5.2%). Tuning on the honest recursive objective (regularized: 397 trees, depth 7, lr 0.017) is what kills the long-horizon error accumulation — a model tuned on one-step accuracy overfits and degrades over recursion.
+
+**Honest full-horizon (entire remaining test window per airport, not capped):** LightGBM averages **4.4% MAPE vs SARIMA 5.5%**, no airport blow-up (Budapest 6.2%, Porto 3.2%, Lisbon 3.0%). An earlier *one-step-tuned* model degraded badly here (Budapest 14.7%, Porto 13.3%) — the fix was tuning on the recursive objective, not changing features.
 
 ### Does the model actually beat a naive baseline?
 
@@ -66,12 +70,12 @@ MASE (Mean Absolute Scaled Error) compares each model to a **naive seasonal base
 
 | Horizon | LightGBM MASE | SARIMA MASE | Naive MAPE |
 |---------|--------------|-------------|------------|
-| M+1 | **0.88** | 1.73 | 6.2% |
-| M+3 | 1.29 | 1.30 | 5.7% |
-| M+6 | **0.64** | 1.09 | 6.3% |
-| M+12 | 1.11 | **0.89** | 6.5% |
+| M+1 | 1.13 | 1.73 | 6.2% |
+| M+3 | 1.22 | 1.30 | 5.7% |
+| M+6 | **0.66** | 1.09 | 6.3% |
+| M+12 | **0.82** | 0.89 | 6.5% |
 
-LightGBM beats the naive baseline at M+1 and M+6 (MASE < 1). At M+12, SARIMA beats naive (0.89) while LightGBM is marginal (1.11). The naive baseline itself averages 6.2% MAPE — already decent because `pax_lag_12` captures annual seasonality.
+LightGBM beats the naive baseline where it matters most for planning — M+6 and M+12 (MASE < 1), and beats SARIMA's MASE at every horizon. At M+1/M+3 the MASE is >1 (the seasonal-naive MAE denominator is small at short horizons) even though LightGBM's MAPE (3.5%/4.1%) is well under naive (6.2%/5.7%). The naive baseline averages 6.2% MAPE — already decent because `pax_lag_12` captures annual seasonality. (This MASE is scaled by the test-period seasonal-naive MAE — a relative-MAE ratio, not in-sample MASE.)
 
 ### Forecast bias
 
@@ -79,12 +83,12 @@ Bias = mean signed error (positive = overestimation). In airport operations, sli
 
 | Horizon | LightGBM Bias | SARIMA Bias | Naive Bias |
 |---------|--------------|-------------|------------|
-| M+1 | +15,800 PAX | +45,800 | −72,600 |
-| M+3 | +30,900 | +27,900 | −53,600 |
-| M+6 | +4,000 | −29,000 | −74,900 |
-| M+12 | +42,000 | −15,400 | −96,900 |
+| M+1 | +19,100 PAX | +45,800 | −72,600 |
+| M+3 | +28,100 | +27,900 | −53,600 |
+| M+6 | −200 | −29,000 | −74,900 |
+| M+12 | −3,700 | −15,400 | −96,900 |
 
-LightGBM has a slight positive bias (overestimates) — operationally safer. The naive baseline strongly underestimates because traffic is growing year-over-year.
+LightGBM has a slight positive bias at short horizons (overestimates — operationally safer) and is near-unbiased at M+6/M+12 (−200 / −3,700 PAX). The naive baseline strongly underestimates at all horizons because traffic is growing year-over-year.
 
 ### Cross-validation stability (3-fold expanding window)
 
@@ -92,12 +96,12 @@ A single train/test split can be misleading. We validate on three temporal folds
 
 | Fold | Train period | Test period | LGB MAPE | SARIMA MAPE |
 |------|-------------|-------------|----------|-------------|
-| 1 | →2022-12 | 2023 | 5.7% | 10.0% |
-| 2 | →2023-12 | 2024 | 7.1% | 8.6% |
-| 3 | →2024-12 | 2025+ | 4.3% | 5.6% |
-| **Avg** | | | **5.7%** | **8.1%** |
+| 1 | →2022-12 | 2023 | 9.2% | 10.0% |
+| 2 | →2023-12 | 2024 | 5.4% | 8.6% |
+| 3 | →2024-12 | 2025+ | 3.8% | 5.6% |
+| **Avg** | | | **6.1%** | **8.1%** |
 
-LightGBM outperforms SARIMA in all 3 folds. Fold 1 (testing on 2023, the COVID recovery year) shows the largest gap — LightGBM handles regime changes better thanks to explicit event features.
+LightGBM outperforms SARIMA in all 3 folds (honest recursive, full test window per fold). Fold 1 (testing on 2023, the COVID recovery year) is hardest for both — long honest recursion over a regime change, with only data up to 2022 to learn from. Fold 3 (2025+) is cleanest at 3.8%.
 
 ### Prediction intervals (quantile regression)
 
@@ -116,20 +120,20 @@ Current coverage (52%) is below the 80% target — the model is overconfident. N
 
 | Airport | LightGBM Global | SARIMA | Chronos | Prophet |
 |---------|----------------|--------|---------|---------|
-| Lyon | 3.9% | 4.1% | 2.6% | 14.3% |
-| Nantes | 4.8% | 5.3% | 4.5% | 13.0% |
-| Budapest | 5.8% | 7.9% | 4.0% | 29.7% |
-| Lisbon | 5.8% | 3.6% | 1.9% | 17.4% |
-| Porto | 3.7% | 5.3% | 3.6% | 18.5% |
-| Belgrade | 4.2% | 6.9% | 3.6% | 7.4% |
+| Lyon | 3.8% | 4.1% | 2.6% | 14.3% |
+| Nantes | 5.5% | 5.3% | 4.5% | 13.0% |
+| Budapest | 6.1% | 7.9% | 4.0% | 29.7% |
+| Lisbon | 6.0% | 3.6% | 1.9% | 17.4% |
+| Porto | 2.4% | 5.3% | 3.6% | 18.5% |
+| Belgrade | 4.5% | 6.9% | 3.6% | 7.4% |
 
 ### Top Features (LightGBM Global)
 
-1. `pax_lag_12` — same month last year (477 splits)
-2. `pax_lag_1` — previous month (358)
-3. `oil_price_usd` — Brent crude oil price (285)
-4. `pax_yoy_growth` — year-over-year momentum (265)
-5. `month_cos` — seasonal encoding (257)
+1. `pax_lag_12` — same month last year (915 splits)
+2. `pax_lag_1` — previous month (847)
+3. `month_cos` — seasonal encoding (702)
+4. `month_sin` — seasonal encoding (528)
+5. `pax_yoy_growth` — year-over-year momentum (475)
 
 ## Evaluation Methodology
 
@@ -151,7 +155,9 @@ All PAX-derived features use only past values:
 
 ### Airline supply features
 
-Adding `n_flights` (commercial flight movements from Eurostat `avia_paoa`) and `pax_per_flight` (load factor proxy) dramatically improved recursive forecasting. These supply-side features act as an anchor: even when PAX lag predictions drift, the flight count provides a stable reference for the expected traffic level. Correlation between `n_flights` and PAX ranges from 0.86 (Nantes) to 0.98 (Porto, Belgrade).
+Adding `n_flights` (commercial flight movements from Eurostat `avia_paoa`) and `pax_per_flight` (load factor proxy) improves forecasting. These supply-side features anchor the expected traffic level even when PAX lag predictions drift. Correlation between `n_flights` and PAX ranges from 0.86 (Nantes) to 0.98 (Porto, Belgrade).
+
+**No future leakage.** At forecast time the true future flight counts are unknown, so the recursive forecaster (`assume_future_exog`) replaces them with a **seasonal-naive proxy** (same month last year) — the same assumption used in evaluation, tuning and the served API. This is realistic: airlines publish schedules ~6 months ahead (OAG/Cirium), so a production system would feed actual forward schedules and likely do even better than this proxy.
 
 ## Data Sources
 
@@ -229,9 +235,9 @@ curl -X POST http://localhost:8000/predict \
 
 1. **Global model beats local models** on 5/6 airports — cross-learning between airports works. This validates the centralized Smart Data Hub approach.
 
-2. **Horizon matters more than model choice.** LightGBM Recursive at M+1 (2.9%) and SARIMA at M+12 (5.2%) outperform any single model across all horizons. A production system should route by horizon.
+2. **One honest LightGBM wins every horizon.** After tuning on the honest recursive objective, LightGBM Recursive beats SARIMA at M+1 through M+12 (3.5–4.1% vs 5.2–6.0%) and over the full test window (4.4% vs 5.5%). No need to route by model.
 
-3. **Airline supply features add signal.** Lagged `n_flights` and `pax_per_flight` from Eurostat provide supply-side information (airline capacity). All supply features are lagged to reflect real-world availability — no future data leakage.
+3. **Tuning regime matters more than features.** A model tuned on one-step accuracy overfits and blows up under long honest recursion (Budapest 14.7%, Porto 13.3%). Re-tuning the *same features* on the recursive objective — more regularization, fewer/shallower trees — fixes it (Budapest 6.2%, Porto 3.2%). The lesson: evaluate and tune in the regime you serve.
 
 4. **Prophet fails on post-COVID recovery** — it extrapolates pre-COVID trend instead of capturing the recovery pattern. LightGBM with explicit `is_covid` flag handles this correctly.
 
@@ -259,7 +265,8 @@ In VINCI's Smart Data Hub context, these forecasts would feed into:
 
 ## Limitations & Next Steps
 
-- **Flight data as exogenous input**: `n_flights` is the top predictor but requires future flight schedules for true out-of-sample forecasting. In production, airlines publish schedules 6+ months ahead (OAG, Cirium), making this feasible. For longer horizons, a flight-count forecast model could feed the PAX model (two-stage approach).
+- **Flight data as exogenous input**: `n_flights` is a top predictor but its future values are unknown at forecast time. The pipeline substitutes a seasonal-naive proxy (no leakage). In production, airlines publish schedules 6+ months ahead (OAG, Cirium); feeding those, or a dedicated two-stage flight-count forecast model, would push accuracy further.
+- **Retrain trigger is manual**: PSI drift detection (`monitoring.py`) flags drift but does not yet auto-trigger retraining — the "auto-retrain" arrow in the architecture diagram is the intended design, not wired. Needs an orchestrator (see below).
 - **Macro extrapolation**: recursive forecasts beyond available macro data require forward-filling exchange rates, oil prices, and GDP. A production system would integrate macro forecasts (ECB projections, futures curves).
 - **No Kubeflow/Airflow orchestration**: the pipeline runs as scripts. A production deployment would use Kubeflow Pipelines or Airflow for scheduling, versioning, and automated retraining.
 - **Chronos stability**: Chronos shows high variance across airports (1.9% Lisbon vs 66.6% on a single validation window). Fine-tuning on aviation data could stabilize it.

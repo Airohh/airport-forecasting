@@ -141,17 +141,14 @@ def predict(req: PredictRequest):
         if sub.empty:
             raise HTTPException(400, "No data for this airport")
 
-        last_date = sub["date"].max()
-        origin = last_date - pd.DateOffset(months=req.horizon)
-
-        from airport_forecast.models import recursive_forecast_global
-        fc = recursive_forecast_global(
+        from airport_forecast.models import forecast_future_global
+        fc = forecast_future_global(
             model, fcols, raw,
-            origin_date=origin.strftime("%Y-%m-%d"),
             airports=CORE_AIRPORTS,
+            horizon=req.horizon,
         )
 
-        fc_ap = fc[fc["airport"] == req.airport].sort_values("date")
+        fc_ap = fc[fc["airport"] == req.airport].sort_values("date").head(req.horizon)
         if fc_ap.empty:
             raise HTTPException(400, "Not enough data for recursive forecast")
 

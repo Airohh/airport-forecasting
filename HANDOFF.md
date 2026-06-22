@@ -22,20 +22,32 @@ Dossier candidature : `TRAVAIL\candidatures\VINCI Airports` (lettre + CV + offre
 
 SARIMA, LightGBM Global, LightGBM Local, Prophet, Chronos (Amazon zero-shot), + Ensemble.
 
-## Résultats honnêtes (post-fix leakage + recursive)
+## Résultats honnêtes (post-fix leakage + recursive + exog honnête)
 
-### Par horizon (LightGBM Recursive vs SARIMA)
+**Régime exog honnête** : au moment du forecast, les exogènes futurs NE sont PAS pris dans les actuals. `assume_future_exog` (models.py) remplace `n_flights`/`pax_per_flight`/calendrier par seasonal-naive (même mois N-1), et carry-forward pour macro + flags événements. Même régime en eval, tuning ET API servie. **Params Optuna (best_params.json) chargés par `train_lightgbm_global`** → eval/serve/tune partagent UNE config.
+
+### Par horizon (LightGBM Recursive vs SARIMA) — primary fold, head(h), tuned
 
 | Horizon | LGB Recursive | SARIMA | Usage |
 |---------|--------------|--------|-------|
-| M+1 | **2.9%** | 6.0% | staffing, gates |
-| M+3 | **4.2%** | 5.2% | capacity planning |
-| M+6 | **3.7%** | 6.0% | route planning |
-| M+12 | 6.3% | **5.2%** | budget, contracts |
+| M+1 | **3.5%** | 6.0% | staffing, gates |
+| M+3 | **4.1%** | 5.2% | capacity planning |
+| M+6 | **3.8%** | 6.0% | route planning |
+| M+12 | **3.9%** | 5.2% | budget, contracts |
 
-Point clé : LightGBM domine M+1 à M+6, SARIMA gagne M+12 (error accumulation récursive).
+Point clé : **LightGBM bat SARIMA à TOUS les horizons, M+12 inclus (3.9 vs 5.2)**. Le tuning sur l'objectif recursive honnête (397 arbres, depth 7, lr 0.017, régularisé) tue l'accumulation d'erreur long horizon.
 
-### Tous modèles (test 2025+, one-step)
+### Full horizon honnête (compare_recursive, fenêtre test complète par aéroport)
+
+| Model | Avg MAPE |
+|-------|----------|
+| LGB recursive (tuned) | **4.4%** |
+| SARIMA | 5.5% |
+| LGB 1-step (optimiste) | 4.7% |
+
+LGB recursive honnête+tuned **bat SARIMA** (4.4 vs 5.5), aucun effondrement (Budapest 6.2%, Porto 3.2%, Lisbon 3.0%). ⚠️ Avec les params DEFAULT (tuné one-step), Budapest/Porto explosaient (14.7%/13.3%) — **le tuning sur objectif recursive a corrigé ça, pas un changement de features**. Leçon entretien : tune dans le régime que tu sers.
+
+### Tous modèles (test 2025+, one-step) — inchangé (non exog-dépendant)
 
 | Model | Avg MAPE |
 |-------|----------|
@@ -45,14 +57,18 @@ Point clé : LightGBM domine M+1 à M+6, SARIMA gagne M+12 (error accumulation r
 | Chronos | 11.0% |
 | Prophet | 17.9% |
 
-Optuna : 100 trials, best params dans `reports/best_params.json`, val MAPE tuné = 4.19%.
+Optuna : 100 trials sur **MAPE recursive honnête**. `best_params.json` : val 5.61%, test recursive 4.50%. Chargé automatiquement par `train_lightgbm_global` (relancer `tune_lightgbm.py` regénère).
 
 ### Bugs corrigés
 
 1. **Target leakage** : `pax_yoy_growth` utilisait `pax` brut (la cible). Corrigé avec `shift(1) - shift(13)`.
-2. **API backcasting** : `/predict` retournait des valeurs historiques. Corrigé avec `recursive_forecast_global`.
+2. **API backcasting** : `/predict` retournait des valeurs historiques. Premier "fix" (recursive avec origin = last-horizon) re-prédisait quand même l'historique. **Vrai fix** : `forecast_future_global` + `make_future_enriched` ajoutent des lignes futures réelles → forecast post end-of-data.
 3. **Test mort** : `test_no_leakage_in_rolling` avait `or True`. Corrigé.
 4. **Dead code** : `holidays_features.py`, `download_macro.py` (v1), `eda.py`, `eda_advanced.py` supprimés.
+5. **Exog leakage recursive** : eval/tune utilisaient les vrais n_flights/macro futurs → chiffres gonflés. Corrigé via `assume_future_exog` (seasonal-naive + carry), `recursive_forecast_global(honest_exog=True)`. Régime unique eval/tune/serve.
+6. **PSI non-standard** : bins équi-largeur + production dans les bords → drift masqué. Corrigé en bins quantiles de la référence, bords ±inf (`monitoring.psi`).
+7. **Tune mauvais régime** : `tune_lightgbm.py` optimisait one-step ; maintenant recursive honnête.
+8. **Params non câblés** : seul tune utilisait Optuna, eval/serve restaient en defaults. `train_lightgbm_global` charge maintenant `best_params.json` (`_load_best_params`). `model.pkl` réentraîné (397 arbres). Une seule config partout.
 
 ## Structure
 
@@ -78,11 +94,14 @@ Dockerfile, docker-compose.yml, .github/workflows/ci.yml, README.md (Mermaid)
 1. ~~Commit le forecasting récursif~~ ✅
 2. ~~Éval par horizon (M+1, M+3, M+6, M+12)~~ ✅
 3. ~~README avec chiffres honnêtes~~ ✅
-4. Push GitHub (`git remote add origin` + push)
-5. Optionnel : log-transform + growth_acceleration pour améliorer Porto M+12
-6. Optionnel : Kubeflow (gap technique de l'offre)
-7. Lire rapport annuel VINCI Airports avant entretien
-8. Mettre à jour lettre de motivation avec ce projet
+4. ~~Relancer tune (recursive honnête) → best_params.json~~ ✅ val 5.61% / test 4.50%
+5. ~~Relancer evaluate_horizons + compare_recursive, figer CSV~~ ✅ (tuned)
+6. Câbler auto-retrain (PSI → trigger) OU retirer la flèche du diagramme — actuellement design only (diagramme déjà annoté "manual")
+7. Optionnel : proxy n_flights meilleur (forward schedule OAG) ou two-stage flight-count forecast pour pousser encore
+8. Push GitHub (`git remote add origin` + push)
+9. Optionnel : Kubeflow (gap technique de l'offre)
+10. Lire rapport annuel VINCI Airports avant entretien
+11. MAJ lettre de motivation avec ce projet (insister sur l'honnêteté méthodo : c'est le différenciateur)
 
 ## Env technique
 
