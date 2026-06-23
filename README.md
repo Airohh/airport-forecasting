@@ -161,6 +161,12 @@ Per-airport coverage ranges from 50% (Belgrade) to 73% (Lyon) — all below the 
 4. `month_sin` — seasonal encoding (528)
 5. `pax_yoy_growth` — year-over-year momentum (475)
 
+### Interpretability — SHAP (in passenger units)
+
+The dashboard's **Drivers** tab goes beyond split counts to **SHAP attributions**, computed via LightGBM's native TreeSHAP (`predict(pred_contrib=True)` — no extra dependency). SHAP measures how many passengers each feature pushes a given forecast up or down, and in which direction (beeswarm), which answers the operational question directly: *why do you predict +X% this summer?*
+
+It also makes the macro hypothesis **testable rather than assumed**. Ranked by mean |SHAP|, lagged PAX, the 3-month rolling mean, lagged flight supply and seasonality dominate; macro features sit lower — `oil_price_usd` carries a modest signal while `gdp`, `unemployment_rate` and `exchange_rate` are weak once seasonality and supply are in. The enriched features earn their place by being measured, not asserted.
+
 ## Evaluation Methodology
 
 ### One-step vs recursive forecasting

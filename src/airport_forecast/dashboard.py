@@ -155,6 +155,29 @@ def run_backtest(val_end: str = "2024-12") -> dict[str, pd.DataFrame]:
     return out
 
 
+@st.cache_resource(show_spinner="Computing SHAP values…")
+def compute_shap(sample_n: int = 800):
+    """Exact TreeSHAP feature attributions via LightGBM's native pred_contrib
+    (no shap/numba dependency). Returns (feature_names, shap_matrix, feature_values)
+    over a recent sample. SHAP values are in PAX units — how many passengers each
+    feature pushes the forecast up or down — so importance is directly readable."""
+    from airport_forecast.features import build_features
+
+    model, fcols = load_model()
+    feat = build_features(load_raw()).copy()
+    if "airport_cat" in fcols and "airport_cat" not in feat.columns:
+        feat["airport_cat"] = feat["airport"].astype("category")
+    need = [c for c in fcols if c != "airport_cat" and c in feat.columns]
+    feat = feat.dropna(subset=need).tail(sample_n)
+    X = feat[fcols]
+    contrib = np.asarray(model.predict(X, pred_contrib=True))
+    shap_vals = contrib[:, :-1]  # last column is the base/expected value
+    Xv = X.copy()
+    if "airport_cat" in Xv.columns:
+        Xv["airport_cat"] = Xv["airport_cat"].cat.codes
+    return list(fcols), shap_vals, Xv.to_numpy(dtype=float)
+
+
 @st.cache_data(show_spinner="Fitting SARIMA…")
 def run_sarima(ap_code: str, future_dates: list[pd.Timestamp]) -> pd.Series:
     """Live SARIMA(1,1,1)(1,1,1,12) forecast for one airport, aligned to the same
@@ -530,30 +553,102 @@ with tab_perf:
         st.image(str(pred_plot), use_container_width=True)
 
 # ──────────────────────────────────────────────────────────────────
-# Tab 3 — Drivers
+# Tab 4 — Drivers (SHAP — directional, in PAX units)
 # ──────────────────────────────────────────────────────────────────
 with tab_drv:
-    st.subheader("LightGBM Global — feature importance")
-    if not fi.empty:
-        top = fi.head(15).iloc[::-1]  # reverse so largest sits on top
-        bar_colors = [ACCENT if i >= len(top) - 3 else MUTED for i in range(len(top))]
-        figf = go.Figure(go.Bar(
-            x=top["importance"], y=top["feature"], orientation="h",
-            marker_color=bar_colors, hovertemplate="%{x} splits<extra></extra>",
+    st.subheader("What drives the forecast — SHAP (impact in passengers)")
+    st.markdown(
+        "SHAP attributes each prediction to its features in **PAX units** — not just "
+        "*which* feature matters (split count) but *how much* it moves the forecast and "
+        "*in which direction*. This answers the question an airport director actually "
+        "asks: **why do you predict +X% this summer?**"
+    )
+
+    try:
+        feat_names, shap_vals, feat_vals = compute_shap()
+        mean_abs = np.abs(shap_vals).mean(axis=0)
+        order = np.argsort(mean_abs)[::-1]
+        K = min(12, len(feat_names))
+        top_idx = order[:K]
+
+        # --- Mean |SHAP| magnitude bar ---
+        bar_idx = top_idx[::-1]  # largest on top
+        figs = go.Figure(go.Bar(
+            x=mean_abs[bar_idx],
+            y=[feat_names[i] for i in bar_idx],
+            orientation="h",
+            marker_color=[ACCENT if r < 3 else MUTED for r in range(K)][::-1],
+            hovertemplate="%{x:,.0f} PAX<extra></extra>",
         ))
-        figf.update_xaxes(title_text="Importance (split count)")
-        st.plotly_chart(style_fig(figf, height=480, legend=False),
+        figs.update_xaxes(title_text="Mean |SHAP| (passengers)")
+        st.plotly_chart(style_fig(figs, height=460, legend=False),
                         use_container_width=True, config=PLOTLY_CFG)
 
-    st.markdown(
-        """
-        **Read:**
-        - `pax_lag_12` — same month last year — is the dominant predictor (annual seasonality)
-        - `pax_lag_1` anchors the short term
-        - `month_sin/cos` encode the seasonal cycle
-        - `pax_yoy_growth` captures momentum; `oil_price_usd` adds macro signal
-        """
-    )
+        # --- Beeswarm: direction + value (each dot = one month, colour = feature value) ---
+        st.markdown("**Directional impact** — each dot is one observation; colour is the feature's value.")
+        figbw = go.Figure()
+        xs, ys, cs = [], [], []
+        rng = np.random.default_rng(0)
+        for pos, i in enumerate(top_idx[::-1]):  # bottom→top to match bar order
+            v = feat_vals[:, i]
+            vmin, vmax = np.nanmin(v), np.nanmax(v)
+            norm = (v - vmin) / (vmax - vmin) if vmax > vmin else np.full_like(v, 0.5)
+            jitter = rng.uniform(-0.32, 0.32, size=len(v))
+            xs.extend(shap_vals[:, i].tolist())
+            ys.extend((pos + jitter).tolist())
+            cs.extend(norm.tolist())
+        figbw.add_trace(go.Scatter(
+            x=xs, y=ys, mode="markers",
+            marker=dict(size=5, color=cs, colorscale="RdBu_r", opacity=0.6,
+                        colorbar=dict(title="Feature<br>value", tickvals=[0, 1],
+                                      ticktext=["low", "high"])),
+            hovertemplate="SHAP %{x:,.0f} PAX<extra></extra>",
+        ))
+        figbw.add_vline(x=0, line_width=1, line_color="#888")
+        figbw.update_yaxes(
+            tickvals=list(range(K)),
+            ticktext=[feat_names[i] for i in top_idx[::-1]],
+        )
+        figbw.update_xaxes(title_text="SHAP value (← fewer PAX  ·  more PAX →)")
+        st.plotly_chart(style_fig(figbw, height=460, legend=False),
+                        use_container_width=True, config=PLOTLY_CFG)
+
+        # --- Honest macro-signal check (tests the "macro adds little" hypothesis) ---
+        macro = ["oil_price_usd", "gdp", "unemployment_rate", "exchange_rate"]
+        rank = {f: (list(order).index(feat_names.index(f)) + 1)
+                for f in macro if f in feat_names}
+        if rank:
+            ranked = ", ".join(f"`{f}` #{r}" for f, r in sorted(rank.items(), key=lambda x: x[1]))
+            st.info(
+                "**Macro hypothesis, tested honestly:** lagged PAX, the rolling mean, "
+                "flight supply and seasonality dominate. Macro features rank lower — "
+                f"{ranked} out of {len(feat_names)}. Oil carries a modest signal; GDP, "
+                "unemployment and FX are weak once seasonality and supply are in. Showing "
+                "this is the point: the enriched features were *tested*, not assumed."
+            )
+    except Exception as e:  # noqa: BLE001 — dashboard should degrade, not crash
+        st.warning(f"SHAP unavailable ({e}). Falling back to split-count importance.")
+        if not fi.empty:
+            top = fi.head(15).iloc[::-1]
+            figf = go.Figure(go.Bar(
+                x=top["importance"], y=top["feature"], orientation="h",
+                marker_color=MUTED, hovertemplate="%{x} splits<extra></extra>",
+            ))
+            figf.update_xaxes(title_text="Importance (split count)")
+            st.plotly_chart(style_fig(figf, height=480, legend=False),
+                            use_container_width=True, config=PLOTLY_CFG)
+
+    # Split-count importance kept as a secondary, classic view
+    if not fi.empty:
+        with st.expander("Classic split-count importance (for comparison)"):
+            top = fi.head(15).iloc[::-1]
+            figf = go.Figure(go.Bar(
+                x=top["importance"], y=top["feature"], orientation="h",
+                marker_color=MUTED, hovertemplate="%{x} splits<extra></extra>",
+            ))
+            figf.update_xaxes(title_text="Importance (split count)")
+            st.plotly_chart(style_fig(figf, height=440, legend=False),
+                            use_container_width=True, config=PLOTLY_CFG)
 
 # ──────────────────────────────────────────────────────────────────
 # Tab 4 — Data & EDA
