@@ -133,6 +133,28 @@ def run_forecast(horizon: int) -> pd.DataFrame:
     return forecast_future_global(model, fcols, raw, CORE_AIRPORTS, horizon)
 
 
+@st.cache_resource(show_spinner="Backtesting held-out test…")
+def run_backtest(val_end: str = "2024-12") -> dict[str, pd.DataFrame]:
+    """Honest held-out backtest: train a global model on data UP TO `val_end`, then
+    recursively forecast the test window (val_end+1 onward) — so predictions are
+    compared against actuals the model never saw. Returns per-airport DataFrames
+    (date, actual, pred). This is the model proving itself on known ground truth,
+    before the genuine post-data forecast extends beyond it."""
+    from airport_forecast.models import evaluate_lightgbm_recursive
+
+    _, results = evaluate_lightgbm_recursive(
+        load_raw(), val_end=val_end, core_airports=CORE_AIRPORTS
+    )
+    out: dict[str, pd.DataFrame] = {}
+    for r in results:
+        out[r.airport] = pd.DataFrame({
+            "date": pd.to_datetime(r.dates),
+            "actual": np.asarray(r.y_true, dtype=float),
+            "pred": np.asarray(r.y_pred, dtype=float),
+        })
+    return out
+
+
 @st.cache_data(show_spinner="Fitting SARIMA…")
 def run_sarima(ap_code: str, future_dates: list[pd.Timestamp]) -> pd.Series:
     """Live SARIMA(1,1,1)(1,1,1,12) forecast for one airport, aligned to the same
@@ -262,6 +284,7 @@ with tab_fc:
         ap_name = st.selectbox("Airport", [SHORT[a] for a in CORE_AIRPORTS])
         ap_code = next(a for a in CORE_AIRPORTS if SHORT[a] == ap_name)
         horizon = st.slider("Horizon (months)", 1, MAX_HORIZON, MAX_HORIZON)
+        show_backtest = st.checkbox("Show held-out backtest (pred vs actual)", value=True)
         show_band = st.checkbox("Show uncertainty band", value=True)
         show_sarima = st.checkbox("Overlay SARIMA (long-term trend)", value=True)
         st.caption(
@@ -286,7 +309,19 @@ with tab_fc:
     fc = run_forecast(horizon)
     fc_ap = fc[fc["airport"] == ap_code].sort_values("date").head(horizon)
 
-    hist = raw[raw["airport"] == ap_code].sort_values("date").tail(36)
+    hist = raw[raw["airport"] == ap_code].sort_values("date").tail(48)
+
+    # Held-out backtest for this airport: model trained up to 2024-12, predicting
+    # the test window it never saw — pred overlaid on the real actuals so fit is
+    # visible before the genuine post-data forecast extends beyond it.
+    bt_ap = pd.DataFrame()
+    bt_mape = np.nan
+    if show_backtest:
+        bt = run_backtest()
+        bt_ap = bt.get(ap_code, pd.DataFrame())
+        if not bt_ap.empty:
+            err = np.abs(bt_ap["pred"] - bt_ap["actual"]) / bt_ap["actual"].replace(0, np.nan)
+            bt_mape = float(np.nanmean(err) * 100)
 
     # Uncertainty band from THIS airport's per-horizon MAPE (interp, no clamp
     # surprises: horizon is capped at the curve's max so np.interp stays in-range)
@@ -324,6 +359,16 @@ with tab_fc:
             hovertemplate="%{y:.2f}M",
         ))
 
+        # Held-out backtest: prediction vs actual on the test window (model never
+        # saw it). Sits ON TOP of the Actual line — the gap between them IS the error.
+        if show_backtest and not bt_ap.empty:
+            fig.add_trace(go.Scatter(
+                x=bt_ap["date"], y=bt_ap["pred"] / 1e6, mode="lines+markers",
+                line=dict(color="#1a7f37", width=2, dash="dot"),
+                marker=dict(size=5, symbol="diamond"),
+                name="LightGBM (held-out test)", hovertemplate="%{y:.2f}M",
+            ))
+
         # Connector last actual → first forecast
         if not hist.empty and not fc_ap.empty:
             fig.add_trace(go.Scatter(
@@ -351,6 +396,16 @@ with tab_fc:
 
         fig.update_yaxes(title_text="Passengers (millions)")
         st.plotly_chart(style_fig(fig, height=460), use_container_width=True, config=PLOTLY_CFG)
+
+        if show_backtest and not bt_ap.empty:
+            n_bt = len(bt_ap)
+            st.caption(
+                f"**Held-out backtest (green dotted):** the model was trained only on "
+                f"data up to 2024-12, then forecast these {n_bt} months it never saw. "
+                f"Mean error vs actuals: **{bt_mape:.1f}% MAPE**. The red line continues "
+                f"the *same method* past the end of all data — so the future forecast is "
+                f"as trustworthy as this visible track record."
+            )
 
         # Model-choice guidance — makes the "short-term LGB / long-term SARIMA"
         # narrative tangible, and flags strong-growth airports honestly.
