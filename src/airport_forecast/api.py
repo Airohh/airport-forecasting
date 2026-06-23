@@ -5,12 +5,11 @@ from __future__ import annotations
 import pickle
 from pathlib import Path
 
-import numpy as np
 import pandas as pd
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 
-from airport_forecast.constants import VINCI_AIRPORTS, HORIZONS, SHORT_NAMES, CORE_AIRPORTS
+from airport_forecast.constants import SHORT_NAMES, CORE_AIRPORTS
 from airport_forecast.data import load_enriched
 from airport_forecast.features import build_features
 

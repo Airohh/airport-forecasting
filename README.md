@@ -2,6 +2,28 @@
 
 Multi-model forecasting pipeline for monthly passenger traffic across the VINCI Airports network. Compares 5 approaches (SARIMA, LightGBM Global/Local, Prophet, Chronos) with honest recursive multi-step evaluation.
 
+## Bottom line
+
+> **One honest LightGBM model forecasts monthly passenger traffic for 6 VINCI airports at 3.5–4.4% error (MAPE), beating SARIMA at every horizon from M+1 to M+12 — and the architecture scales to the whole 70+ airport network without change.**
+
+Three things this is built to demonstrate, in priority order:
+
+1. **It drives decisions, not just charts.** Each horizon maps to a real airport operation — staffing and gate allocation short-term, terminal capacity mid-term, airline contracts and capex long-term (table below).
+2. **The numbers are honest.** Future inputs (flight schedules, macro) are *never* read from actuals at forecast time; the model is tuned on the same recursive regime it's served in. No leakage, no inflated benchmarks. This is the differentiator.
+3. **It scales to the Smart Data Hub.** A single global model cross-learns across airports — add an airport by adding rows, and a new airport benefits from the network immediately (cold start).
+
+### What each forecast triggers
+
+| Horizon | MAPE | Operational decision |
+|---------|------|---------------------|
+| **M+1** | 3.5% | Staffing, gate allocation, open/consolidate check-in desks |
+| **M+3** | 4.1% | Seasonal staff contracts, capacity planning, retail hours |
+| **M+6** | 3.8% | Terminal capacity upgrades, parking slots, route planning |
+| **M+12** | 3.9% | Budget, airline contract negotiation, capex, infrastructure |
+| Drift alert (PSI > 0.25) | — | Auto-trigger retraining, investigate root cause |
+
+The full decision logic (growth/decline thresholds → action) is in [Operational Decision Support](#operational-decision-support).
+
 ## Architecture
 
 ```mermaid
@@ -45,6 +67,8 @@ graph TD
         Z --> Q
     end
 ```
+
+**How to read it:** raw Eurostat traffic is enriched with macro, calendar and event signals into 33 features; five models are trained and compared; the winner (LightGBM Global) is served via API/dashboard; and PSI drift detection closes the loop — when feature distributions shift, it auto-triggers a retrain. The arrow from Monitoring back to the model is what makes this an MLOps pipeline rather than a one-off notebook.
 
 ## Results
 
