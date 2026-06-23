@@ -167,6 +167,12 @@ The dashboard's **Drivers** tab goes beyond split counts to **SHAP attributions*
 
 It also makes the macro hypothesis **testable rather than assumed**. Ranked by mean |SHAP|, lagged PAX, the 3-month rolling mean, lagged flight supply and seasonality dominate; macro features sit lower — `oil_price_usd` carries a modest signal while `gdp`, `unemployment_rate` and `exchange_rate` are weak once seasonality and supply are in. The enriched features earn their place by being measured, not asserted.
 
+### Anomaly attribution — without telling a story
+
+The **Anomalies** tab answers "can every rise or fall be attributed to a cause?" honestly. The baseline is the **same month last year**, so ordinary seasonality (summer peaks, school holidays) is removed by construction — a flagged month is a *departure from the seasonal norm*, not the norm itself. A robust z-score (median/MAD, so the COVID collapse doesn't desensitise the threshold) flags the outliers, which are then cross-referenced against the event flags and a same-direction flight-supply swing. Anything left is labelled **Unexplained** rather than given a convenient narrative.
+
+The attributions are specific and check out: Lisbon's November spike → the **Web Summit** conference; Belgrade's 2022 surge → **Ukraine-war** traffic rerouting; the 2022–23 rebounds → **flight-supply** recovery. Crucially, after 2023 most airports show *no* anomalies — traffic returns to seasonal predictability. The point is the discipline: not every wiggle gets a cause, and the residual is named as residual.
+
 ## Evaluation Methodology
 
 ### One-step vs recursive forecasting
