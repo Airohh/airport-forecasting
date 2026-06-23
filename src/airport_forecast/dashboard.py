@@ -235,69 +235,6 @@ def kpi_card(col, label: str, value: str, sub: str) -> None:
     )
 
 
-# Event flags present in the enriched data, mapped to readable causes.
-EVENT_LABELS = {
-    "event_covid": "COVID-19",
-    "event_ukraine_war": "Ukraine war",
-    "event_major_sport": "Major sporting event",
-    "event_conference": "Conference (e.g. Web Summit)",
-}
-
-
-@st.cache_data(show_spinner=False)
-def compute_anomalies(ap_code: str, z_thresh: float = 3.0, min_pct: float = 8.0) -> pd.DataFrame:
-    """Flag months where traffic departs from its OWN seasonal norm, then attribute.
-
-    Baseline = seasonal-naive (same month last year), so seasonality — summer peaks,
-    school holidays — is REMOVED by construction: an anomaly is a deviation from the
-    normal seasonal pattern, not the pattern itself. Each flagged month is then
-    cross-referenced with the event flags (COVID, war, sport, conference) and with a
-    same-direction flight-supply swing (route/frequency change). Anything left is
-    labelled honestly as 'Unexplained'.
-
-    Robust z-score (median / MAD) so the COVID collapse doesn't desensitise the
-    threshold. Returns the full series with residuals + an `is_anomaly` flag +
-    `attribution`."""
-    src = load_raw()
-    sub = src[src["airport"] == ap_code].sort_values("date").reset_index(drop=True).copy()
-    if sub.empty or "pax" not in sub.columns:
-        return pd.DataFrame()
-
-    sub["expected"] = sub["pax"].shift(12)  # same month last year
-    sub = sub.dropna(subset=["expected"])
-    sub = sub[sub["expected"] > 0]
-    if sub.empty:
-        return pd.DataFrame()
-    sub["residual"] = sub["pax"] - sub["expected"]
-    sub["residual_pct"] = sub["residual"] / sub["expected"] * 100.0
-
-    # flight supply YoY (route / frequency change proxy)
-    if "n_flights" in sub.columns:
-        f_exp = sub["n_flights"].shift(12)
-        sub["flights_yoy"] = np.where(f_exp > 0, (sub["n_flights"] - f_exp) / f_exp * 100.0, np.nan)
-    else:
-        sub["flights_yoy"] = np.nan
-
-    med = sub["residual_pct"].median()
-    mad = (sub["residual_pct"] - med).abs().median()
-    scale = mad * 1.4826 if mad > 0 else sub["residual_pct"].std(ddof=0)
-    sub["rz"] = (sub["residual_pct"] - med) / scale if scale and scale > 0 else 0.0
-    sub["is_anomaly"] = (sub["rz"].abs() > z_thresh) & (sub["residual_pct"].abs() > min_pct)
-
-    def _attribute(r) -> str:
-        reasons = [lab for col, lab in EVENT_LABELS.items()
-                   if col in sub.columns and r.get(col, 0) and r[col] > 0]
-        fy = r.get("flights_yoy", np.nan)
-        if pd.notna(fy) and abs(fy) > 10 and np.sign(fy) == np.sign(r["residual_pct"]):
-            reasons.append(f"flight supply {fy:+.0f}% (routes/frequency)")
-        return " + ".join(reasons) if reasons else "Unexplained"
-
-    sub["attribution"] = sub.apply(
-        lambda r: _attribute(r) if r["is_anomaly"] else "", axis=1
-    )
-    return sub
-
-
 raw = load_raw()
 results, fi, hz = load_reports()
 mape_curve = horizon_mape_curve(hz)
@@ -357,9 +294,8 @@ sans changement — on ajoute un aéroport en ajoutant des lignes.
 
 st.write("")
 
-tab_fc, tab_val, tab_perf, tab_drv, tab_anom, tab_eda = st.tabs(
-    ["🔮 Forecast", "✅ Validation", "📊 Performance", "🧩 Drivers",
-     "🔎 Anomalies", "🗂️ Data & EDA"]
+tab_fc, tab_val, tab_perf, tab_drv, tab_eda = st.tabs(
+    ["🔮 Forecast", "✅ Validation", "📊 Performance", "🧩 Drivers", "🗂️ Data & EDA"]
 )
 
 # ──────────────────────────────────────────────────────────────────
@@ -715,89 +651,7 @@ with tab_drv:
                             use_container_width=True, config=PLOTLY_CFG)
 
 # ──────────────────────────────────────────────────────────────────
-# Tab 5 — Anomalies (deviation from seasonal norm → attribution)
-# ──────────────────────────────────────────────────────────────────
-with tab_anom:
-    st.subheader("Anomalies — when did traffic break its own seasonal pattern, and why?")
-    st.markdown(
-        "Not every rise or fall has a name. The baseline here is **same month last "
-        "year**, so ordinary seasonality (summer peak, school holidays) is removed by "
-        "construction — what's left are the months that *deviate* from the seasonal "
-        "norm. Each flagged month is cross-referenced with known events and with a "
-        "same-direction flight-supply swing; anything unexplained is labelled honestly "
-        "as **Unexplained** rather than given a convenient story."
-    )
-
-    ac1, ac2 = st.columns([1, 3])
-    with ac1:
-        an_name = st.selectbox("Airport", [SHORT[a] for a in CORE_AIRPORTS], key="anom_ap")
-        an_code = next(a for a in CORE_AIRPORTS if SHORT[a] == an_name)
-        sensitivity = st.slider("Sensitivity (robust z)", 2.0, 4.0, 3.0, 0.5,
-                                help="Lower = flag more months. Robust z-score on the "
-                                     "year-over-year deviation.")
-
-    adf = compute_anomalies(an_code, z_thresh=sensitivity)
-    if adf.empty:
-        st.info("Not enough history for this airport.")
-    else:
-        anoms = adf[adf["is_anomaly"]].copy()
-        n_an = len(anoms)
-        n_attr = int((anoms["attribution"] != "Unexplained").sum()) if n_an else 0
-        attr_rate = (n_attr / n_an * 100) if n_an else 0.0
-
-        with ac1:
-            st.metric("Anomalous months", f"{n_an}")
-            st.metric("Attributed to a known cause", f"{attr_rate:.0f}%",
-                      f"{n_attr}/{n_an}" if n_an else "—")
-
-        with ac2:
-            base = adf
-            colors = np.where(
-                base["is_anomaly"] & (base["residual_pct"] >= 0), "#1a7f37",
-                np.where(base["is_anomaly"], ACCENT, "rgba(159,176,192,.45)")
-            )
-            # Display deviation clipped to ±100% so normal anomalies stay readable;
-            # the COVID-era rebounds (vs a collapsed prior-year base) run far higher
-            # and clip the axis. Hover shows the TRUE value via customdata.
-            y_plot = base["residual_pct"].clip(-100, 100)
-            attr_disp = np.where(base["attribution"].values == "", "—",
-                                 base["attribution"].values)
-            customdata = np.column_stack([base["residual_pct"].values, attr_disp])
-            figa = go.Figure(go.Bar(
-                x=base["date"], y=y_plot, marker_color=colors,
-                customdata=customdata,
-                hovertemplate="%{x|%b %Y}<br>%{customdata[0]:+.0f}% vs last year"
-                              "<br>%{customdata[1]}<extra></extra>",
-            ))
-            figa.add_hline(y=0, line_width=1, line_color="#888")
-            figa.update_yaxes(title_text="Deviation vs same month last year (%)",
-                              range=[-105, 105])
-            st.plotly_chart(style_fig(figa, height=420, legend=False),
-                            use_container_width=True, config=PLOTLY_CFG)
-            st.caption(
-                "Green = above seasonal norm, red = below, grey = within normal range. "
-                "Bars are clipped at ±100% — the 2021–22 rebounds run much higher (they "
-                "compare against a COVID-collapsed prior year); hover shows the true "
-                "value. The bulk of anomalies are the COVID window, correctly attributed; "
-                "outside it, traffic mostly tracks its seasonal norm."
-            )
-
-        if n_an:
-            tbl = anoms.sort_values("date", ascending=False)[
-                ["date", "pax", "expected", "residual_pct", "attribution"]
-            ].copy()
-            tbl["date"] = tbl["date"].dt.strftime("%Y-%m")
-            tbl["pax"] = tbl["pax"].round().astype(int)
-            tbl["expected"] = tbl["expected"].round().astype(int)
-            tbl["residual_pct"] = tbl["residual_pct"].round(1)
-            tbl.columns = ["Month", "Actual PAX", "Expected (N-1)", "Deviation %", "Likely cause"]
-            st.dataframe(tbl, use_container_width=True, hide_index=True, height=340)
-        else:
-            st.success("No months break the seasonal norm at this sensitivity — traffic "
-                       "follows its seasonal pattern closely.")
-
-# ──────────────────────────────────────────────────────────────────
-# Tab 6 — Data & EDA
+# Tab 5 — Data & EDA
 # ──────────────────────────────────────────────────────────────────
 with tab_eda:
     st.subheader("Monthly passenger traffic")
