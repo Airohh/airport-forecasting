@@ -271,8 +271,8 @@ sans changement — on ajoute un aéroport en ajoutant des lignes.
 
 st.write("")
 
-tab_fc, tab_perf, tab_drv, tab_eda = st.tabs(
-    ["🔮 Forecast", "📊 Performance", "🧩 Drivers", "🗂️ Data & EDA"]
+tab_fc, tab_val, tab_perf, tab_drv, tab_eda = st.tabs(
+    ["🔮 Forecast", "✅ Validation", "📊 Performance", "🧩 Drivers", "🗂️ Data & EDA"]
 )
 
 # ──────────────────────────────────────────────────────────────────
@@ -284,14 +284,16 @@ with tab_fc:
         ap_name = st.selectbox("Airport", [SHORT[a] for a in CORE_AIRPORTS])
         ap_code = next(a for a in CORE_AIRPORTS if SHORT[a] == ap_name)
         horizon = st.slider("Horizon (months)", 1, MAX_HORIZON, MAX_HORIZON)
-        show_backtest = st.checkbox("Show held-out backtest (pred vs actual)", value=True)
         show_band = st.checkbox("Show uncertainty band", value=True)
         show_sarima = st.checkbox("Overlay SARIMA (long-term trend)", value=True)
         st.caption(
-            "Recursive forecast: each month's prediction feeds the next month's "
-            "lags. Future flights/macro use seasonal-naive / carried-forward "
-            "values — no leakage. Capped at M+12: the longest horizon we "
-            "backtested, so every band shown is a measured error, not a guess."
+            f"Horizon = {horizon} months **beyond each airport's latest available "
+            "observation** — airports have unequal data end-dates, so each forecast "
+            "starts right after its own last actual. Recursive: each month's "
+            "prediction feeds the next month's lags; future flights/macro use "
+            "seasonal-naive / carried-forward values — no leakage. Capped at M+12, "
+            "the longest horizon backtested. See the **Validation** tab for the "
+            "held-out track record behind these numbers."
         )
 
         # Per-airport confidence badge from this airport's own backtest
@@ -310,18 +312,6 @@ with tab_fc:
     fc_ap = fc[fc["airport"] == ap_code].sort_values("date").head(horizon)
 
     hist = raw[raw["airport"] == ap_code].sort_values("date").tail(48)
-
-    # Held-out backtest for this airport: model trained up to 2024-12, predicting
-    # the test window it never saw — pred overlaid on the real actuals so fit is
-    # visible before the genuine post-data forecast extends beyond it.
-    bt_ap = pd.DataFrame()
-    bt_mape = np.nan
-    if show_backtest:
-        bt = run_backtest()
-        bt_ap = bt.get(ap_code, pd.DataFrame())
-        if not bt_ap.empty:
-            err = np.abs(bt_ap["pred"] - bt_ap["actual"]) / bt_ap["actual"].replace(0, np.nan)
-            bt_mape = float(np.nanmean(err) * 100)
 
     # Uncertainty band from THIS airport's per-horizon MAPE (interp, no clamp
     # surprises: horizon is capped at the curve's max so np.interp stays in-range)
@@ -359,16 +349,6 @@ with tab_fc:
             hovertemplate="%{y:.2f}M",
         ))
 
-        # Held-out backtest: prediction vs actual on the test window (model never
-        # saw it). Sits ON TOP of the Actual line — the gap between them IS the error.
-        if show_backtest and not bt_ap.empty:
-            fig.add_trace(go.Scatter(
-                x=bt_ap["date"], y=bt_ap["pred"] / 1e6, mode="lines+markers",
-                line=dict(color="#1a7f37", width=2, dash="dot"),
-                marker=dict(size=5, symbol="diamond"),
-                name="LightGBM (held-out test)", hovertemplate="%{y:.2f}M",
-            ))
-
         # Connector last actual → first forecast
         if not hist.empty and not fc_ap.empty:
             fig.add_trace(go.Scatter(
@@ -396,16 +376,6 @@ with tab_fc:
 
         fig.update_yaxes(title_text="Passengers (millions)")
         st.plotly_chart(style_fig(fig, height=460), use_container_width=True, config=PLOTLY_CFG)
-
-        if show_backtest and not bt_ap.empty:
-            n_bt = len(bt_ap)
-            st.caption(
-                f"**Held-out backtest (green dotted):** the model was trained only on "
-                f"data up to 2024-12, then forecast these {n_bt} months it never saw. "
-                f"Mean error vs actuals: **{bt_mape:.1f}% MAPE**. The red line continues "
-                f"the *same method* past the end of all data — so the future forecast is "
-                f"as trustworthy as this visible track record."
-            )
 
         # Model-choice guidance — makes the "short-term LGB / long-term SARIMA"
         # narrative tangible, and flags strong-growth airports honestly.
@@ -445,7 +415,75 @@ with tab_fc:
         st.dataframe(out, use_container_width=True, hide_index=True, height=320)
 
 # ──────────────────────────────────────────────────────────────────
-# Tab 2 — Performance
+# Tab 2 — Validation (held-out backtest: prediction vs actual)
+# ──────────────────────────────────────────────────────────────────
+# Kept deliberately SEPARATE from the Forecast tab: the backtest model is
+# trained on a historical snapshot (data ≤ 2024-12), the production forecast on
+# all data. Mixing both lines on one chart invites "the red forecast scored that
+# accuracy" — which is false. Here it is unambiguous: this is the held-out test.
+with tab_val:
+    st.subheader("Held-out backtest — does the model match reality it never saw?")
+    st.markdown(
+        "A model trained **only on data up to 2024-12** then forecasts the 2025+ "
+        "test window it never saw. The dotted line is the prediction; the solid line "
+        "is the actual that happened. The gap between them is the **real error** — "
+        "this is the track record the production forecast inherits."
+    )
+
+    bt = run_backtest()
+    vc1, vc2 = st.columns([1, 3])
+    with vc1:
+        val_name = st.selectbox("Airport", [SHORT[a] for a in CORE_AIRPORTS], key="val_ap")
+        val_code = next(a for a in CORE_AIRPORTS if SHORT[a] == val_name)
+
+    bt_ap = bt.get(val_code, pd.DataFrame())
+    if bt_ap.empty:
+        st.info("No backtest available for this airport.")
+    else:
+        err = np.abs(bt_ap["pred"] - bt_ap["actual"]) / bt_ap["actual"].replace(0, np.nan)
+        bt_mape = float(np.nanmean(err) * 100)
+        bias = float((bt_ap["pred"] - bt_ap["actual"]).mean())
+
+        with vc1:
+            lab, col = trust_label(bt_mape)
+            st.metric("Held-out MAPE", f"{bt_mape:.1f}%", lab)
+            st.metric("Mean bias (PAX)", f"{bias:+,.0f}",
+                      "over-forecast" if bias > 0 else "under-forecast")
+            st.metric("Test months", f"{len(bt_ap)}")
+
+        with vc2:
+            figv = go.Figure()
+            ctx = (
+                raw[raw["airport"] == val_code]
+                .sort_values("date").tail(48)
+            )
+            figv.add_trace(go.Scatter(
+                x=ctx["date"], y=ctx["pax"] / 1e6, mode="lines",
+                line=dict(color=INK, width=2.5), name="Actual",
+                hovertemplate="%{y:.2f}M",
+            ))
+            figv.add_trace(go.Scatter(
+                x=bt_ap["date"], y=bt_ap["pred"] / 1e6, mode="lines+markers",
+                line=dict(color="#1a7f37", width=2.2, dash="dot"),
+                marker=dict(size=6, symbol="diamond"),
+                name="LightGBM (held-out prediction)", hovertemplate="%{y:.2f}M",
+            ))
+            figv.add_vrect(
+                x0=bt_ap["date"].min(), x1=bt_ap["date"].max(),
+                fillcolor="#1a7f37", opacity=0.05, line_width=0,
+                annotation_text="held-out test window", annotation_position="top left",
+            )
+            figv.update_yaxes(title_text="Passengers (millions)")
+            st.plotly_chart(style_fig(figv, height=440), use_container_width=True, config=PLOTLY_CFG)
+            st.caption(
+                f"**{val_name}:** {bt_mape:.1f}% MAPE on {len(bt_ap)} unseen months. "
+                "The model is trained on a 2024-12 snapshot here purely to *prove* the "
+                "method on known ground truth; the deployed forecast (Forecast tab) is "
+                "retrained on all available data."
+            )
+
+# ──────────────────────────────────────────────────────────────────
+# Tab 3 — Performance
 # ──────────────────────────────────────────────────────────────────
 with tab_perf:
     st.subheader("MAPE by horizon — honest recursive")

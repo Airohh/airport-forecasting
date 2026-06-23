@@ -128,18 +128,19 @@ A single train/test split can be misleading. We validate on three temporal folds
 
 LightGBM outperforms SARIMA in all 3 folds (honest recursive, full test window per fold). Fold 1 (testing on 2023, the COVID recovery year) is hardest for both — long honest recursion over a regime change, with only data up to 2022 to learn from. Fold 3 (2025+) is cleanest at 3.8%.
 
-### Prediction intervals (quantile regression)
+### Prediction intervals — known limitation, stated honestly
 
-LightGBM quantile regression provides 80% prediction intervals (P10–P90):
+LightGBM quantile regression provides nominal 80% prediction intervals (P10–P90). The point forecast is strong; the **intervals are not yet calibrated** and this is the project's main open weakness — reported rather than hidden:
 
-| Airport | Coverage | Interval Width |
-|---------|----------|---------------|
-| Lyon | 73% | ±50k PAX |
-| Budapest | 67% | ±82k PAX |
-| Belgrade | 50% | ±28k PAX |
-| **Overall** | **52%** | **±72k PAX** |
+| Metric | Value | Status |
+|--------|-------|--------|
+| Point accuracy (MAPE) | 3.5–4.4% | ✅ Strong |
+| Interval coverage @ nominal 80% | **52%** | ⚠️ Under-calibrated (overconfident) |
+| Mean interval width | ±72k PAX | — |
 
-Current coverage (52%) is below the 80% target — the model is overconfident. Next step: conformal prediction calibration to guarantee coverage.
+Per-airport coverage ranges from 50% (Belgrade) to 73% (Lyon) — all below the 80% target, so the model is overconfident about its own uncertainty.
+
+**Why it's not fixed yet, and how:** quantile-regression intervals are not guaranteed to cover at the nominal rate out-of-sample. The principled fix is **conformal prediction** (split-conformal / CQR), which calibrates the intervals on a held-out set to *guarantee* the target coverage regardless of model. That is the next planned step — the point forecast is reliable today; the calibrated uncertainty is roadmap.
 
 ### Per Airport (Test Set 2025+, one-step)
 
