@@ -1,6 +1,6 @@
 # Airport forecasting
 
-Prévision du trafic passagers mensuel (PAX) sur 6 aéroports, données Eurostat. Un LightGBM global contre SARIMA (et Prophet / Chronos en comparaison). L’éval est récursive : au moment du forecast, on ne lit pas les vrais vols ni la macro du futur.
+J’ai pris 6 aéroports européens (Eurostat) pour voir si un seul LightGBM tient partout, sans lire le futur au moment du forecast. Comparaison avec SARIMA, Prophet et Chronos.
 
 Les chiffres sont dans `reports/horizon_results.csv`.
 

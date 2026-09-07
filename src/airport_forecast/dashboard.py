@@ -1,13 +1,10 @@
-"""Streamlit dashboard for airport PAX forecasting — VINCI Airports network.
+"""Streamlit dashboard for airport PAX forecasting.
 
 Tabs:
   1. Forecast      — live honest recursive forecast (pick airport + horizon)
   2. Performance   — MAPE by horizon (LGB vs SARIMA vs naive) + per-airport
   3. Drivers       — LightGBM feature importance
   4. Data & EDA    — raw traffic + EDA gallery
-
-Charts are Plotly (interactive: hover, zoom, unified tooltips). Theme is set
-globally in `.streamlit/config.toml` (VINCI red accent).
 """
 
 from __future__ import annotations
@@ -41,7 +38,7 @@ MODELS = ROOT / "models"
 # ──────────────────────────────────────────────────────────────────
 # Palette + page config
 # ──────────────────────────────────────────────────────────────────
-ACCENT = "#E2001A"   # VINCI red
+ACCENT = "#2b6cb0"
 INK = "#1d2b3a"
 SARIMA_BLUE = "#2b6cb0"
 MUTED = "#9fb0c0"
@@ -49,7 +46,7 @@ GRID = "rgba(20,30,45,.08)"
 FONT = "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif"
 
 st.set_page_config(
-    page_title="Airport PAX Forecasting · VINCI",
+    page_title="Airport PAX forecasting",
     page_icon="✈️",
     layout="wide",
 )
@@ -78,7 +75,7 @@ st.markdown(
 
 
 def style_fig(fig: go.Figure, height: int = 460, legend: bool = True) -> go.Figure:
-    """Shared Plotly layout — clean white, VINCI typography, unified hover."""
+    """Shared Plotly layout."""
     fig.update_layout(
         template="plotly_white",
         height=height,
@@ -243,53 +240,31 @@ hz_points = sorted(mape_curve)
 # ──────────────────────────────────────────────────────────────────
 # Header + KPI row
 # ──────────────────────────────────────────────────────────────────
-st.title("✈️ Airport PAX Forecasting")
-st.caption("Monthly passenger traffic forecasting across the VINCI Airports network · honest recursive evaluation")
+st.title("Airport PAX forecasting")
+st.caption("6 aéroports européens, Eurostat. Éval récursive : on ne lit pas le futur.")
 
 best_m1 = mape_curve.get(min(hz_points), np.nan)
 best_m12 = mape_curve.get(max(hz_points), np.nan)
 last_month = raw["date"].max().strftime("%b %Y")
 
 k1, k2, k3, k4 = st.columns(4)
-kpi_card(k1, "Airports", str(raw["airport"].nunique()), "VINCI network core")
+kpi_card(k1, "Airports", str(raw["airport"].nunique()), "Lyon, Nantes, Budapest, Lisbonne, Porto, Belgrade")
 kpi_card(k2, "MAPE M+1", f"{best_m1:.1f}%", "honest recursive")
 kpi_card(k3, "MAPE M+12", f"{best_m12:.1f}%", "beats SARIMA 5.2%")
 kpi_card(k4, "Data through", last_month, "Eurostat avia_paoa")
 
 st.write("")
 
-# ──────────────────────────────────────────────────────────────────
-# Synthèse métier (FR) — verdict d'abord, audience hiring manager VINCI.
-# Le reste du tableau de bord est en anglais (norme technique) ; cette
-# couche narrative parle au métier français qui prend la décision.
-# ──────────────────────────────────────────────────────────────────
 with st.container(border=True):
     st.markdown(
         f"""
-##### 🎯 Synthèse — à quoi sert ce forecast
+##### Ce que je voulais vérifier
 
-Un **seul modèle LightGBM** (récursif, évaluation honnête) bat SARIMA à **tous les horizons**
-— de **{best_m1:.1f}% d'erreur à M+1** (planning court terme) à **{best_m12:.1f}% à M+12**
-(budget annuel) — sur les **6 aéroports** du réseau. Pas besoin d'aiguiller par modèle :
-une config, partout. L'architecture passe à l'échelle du réseau VINCI (70+ aéroports)
-sans changement — on ajoute un aéroport en ajoutant des lignes.
+Un seul LightGBM pour les 6 aéroports, tuné et évalué en récursif.
+Pour l'instant : **{best_m1:.1f}%** à M+1, **{best_m12:.1f}%** à M+12, mieux que SARIMA
+sur ces horizons. Ajouter un aéroport = ajouter des lignes. Les intervalles
+à 80% ne couvrent pas encore assez (voir l'onglet Performance).
 """
-    )
-    d1, d2, d3 = st.columns(3)
-    d1.markdown(
-        "**Court terme · M+1→M+3**  \n"
-        "_Staffing, allocation des portes, ouverture de comptoirs._  \n"
-        "Pic prévu → renfort équipes sol & sûreté."
-    )
-    d2.markdown(
-        "**Moyen terme · M+6**  \n"
-        "_Capacité, slots parking, contrats intérim saisonniers._  \n"
-        "Croissance soutenue → anticiper l'upgrade terminal."
-    )
-    d3.markdown(
-        "**Stratégique · M+12**  \n"
-        "_Budget, négociation compagnies, capex infrastructure._  \n"
-        "Tendance → incentives nouvelles lignes ou diversification."
     )
 
 st.write("")

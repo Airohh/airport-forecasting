@@ -53,7 +53,7 @@ for i, (code, grp) in enumerate(feat.groupby("airport")):
 ax.axvspan(pd.Timestamp("2020-03-01"), pd.Timestamp("2022-06-01"),
            alpha=0.15, color="red", label="COVID")
 ax.set_ylabel("Passengers (millions)")
-ax.set_title("Monthly PAX - VINCI Airports Network")
+ax.set_title("Monthly PAX — 6 European airports")
 ax.legend(loc="upper left", ncol=2)
 ax.xaxis.set_major_locator(mdates.YearLocator(2))
 ax.xaxis.set_major_formatter(mdates.DateFormatter("%Y"))

@@ -1,4 +1,4 @@
-"""Download Eurostat avia_paoa dataset and filter for VINCI Airports."""
+"""Download Eurostat avia_paoa and keep the 6 airports of this project."""
 
 import time
 from pathlib import Path
@@ -9,7 +9,7 @@ import pandas as pd
 RAW_DIR = Path(__file__).resolve().parent.parent / "data" / "raw"
 RAW_DIR.mkdir(parents=True, exist_ok=True)
 
-VINCI_AIRPORTS = {
+AIRPORTS = {
     "FR_LFLL": "Lyon Saint-Exupéry",
     "FR_LFRS": "Nantes Atlantique",
     "UK_EGKK": "London Gatwick",
@@ -49,15 +49,15 @@ def main() -> None:
     print(f"\nAirport column detected: '{airport_col}'")
     print(f"Sample values: {df[airport_col].dropna().unique()[:10]}")
 
-    vinci_codes = list(VINCI_AIRPORTS.keys())
-    mask = df[airport_col].isin(vinci_codes)
-    df_vinci = df[mask].copy()
-    print(f"\nFiltered VINCI airports: {df_vinci.shape[0]} rows")
-    print(f"Airports found: {df_vinci[airport_col].unique().tolist()}")
+    codes = list(AIRPORTS.keys())
+    mask = df[airport_col].isin(codes)
+    df_subset = df[mask].copy()
+    print(f"\nFiltered airports: {df_subset.shape[0]} rows")
+    print(f"Airports found: {df_subset[airport_col].unique().tolist()}")
 
-    vinci_path = RAW_DIR / "avia_paoa_vinci.parquet"
-    df_vinci.to_parquet(vinci_path, index=False)
-    print(f"VINCI subset saved: {vinci_path}")
+    subset_path = RAW_DIR / "avia_paoa_subset.parquet"
+    df_subset.to_parquet(subset_path, index=False)
+    print(f"Subset saved: {subset_path}")
 
 
 if __name__ == "__main__":

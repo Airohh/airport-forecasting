@@ -2,7 +2,7 @@
 
 EUROSTAT_DATASET = "avia_paoa"
 
-VINCI_AIRPORTS: dict[str, str] = {
+AIRPORTS: dict[str, str] = {
     "FR_LFLL": "Lyon Saint-Exupéry",
     "FR_LFRS": "Nantes Atlantique",
     "UK_EGKK": "London Gatwick",

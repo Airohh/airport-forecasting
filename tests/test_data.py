@@ -4,7 +4,7 @@ import pandas as pd
 import pytest
 
 from airport_forecast.data import load_pax, load_enriched
-from airport_forecast.constants import VINCI_AIRPORTS, CORE_AIRPORTS
+from airport_forecast.constants import AIRPORTS, CORE_AIRPORTS
 
 
 def test_load_pax_shape():
@@ -31,10 +31,10 @@ def test_load_pax_positive_values():
     assert (df["pax"] >= 0).all()
 
 
-def test_load_pax_airports_are_vinci():
+def test_load_pax_airports_are_known():
     df = load_pax(with_holidays=False)
     for code in df["airport"].unique():
-        assert code in VINCI_AIRPORTS
+        assert code in AIRPORTS
 
 
 def test_load_pax_date_sorted():

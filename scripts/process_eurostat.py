@@ -1,4 +1,4 @@
-"""Process raw Eurostat avia_paoa into clean monthly PAX per VINCI airport."""
+"""Process raw Eurostat avia_paoa into clean monthly PAX for the 6 airports."""
 
 import re
 from pathlib import Path
@@ -9,7 +9,7 @@ RAW_DIR = Path(__file__).resolve().parent.parent / "data" / "raw"
 PROCESSED_DIR = Path(__file__).resolve().parent.parent / "data" / "processed"
 PROCESSED_DIR.mkdir(parents=True, exist_ok=True)
 
-VINCI_AIRPORTS = {
+AIRPORTS = {
     "FR_LFLL": "Lyon Saint-Exupéry",
     "FR_LFRS": "Nantes Atlantique",
     "UK_EGKK": "London Gatwick",
@@ -29,27 +29,27 @@ def main() -> None:
     df = pd.read_parquet(raw_path)
     print(f"Raw shape: {df.shape}")
 
-    # Filter: VINCI airports, monthly frequency, total passengers carried, total schedule
-    vinci_codes = list(VINCI_AIRPORTS.keys())
+    # Filter: project airports, monthly, total passengers carried, total schedule
+    codes = list(AIRPORTS.keys())
     mask = (
-        df["rep_airp"].isin(vinci_codes)
+        df["rep_airp"].isin(codes)
         & (df["freq"] == "M")
         & (df["tra_meas"] == "PAS_CRD")  # passengers carried (total)
         & (df["schedule"] == "TOT")       # all schedules
     )
     filtered = df[mask].copy()
-    print(f"After VINCI + monthly + PAS_CRD + TOT filter: {filtered.shape}")
+    print(f"After airport + monthly + PAS_CRD + TOT filter: {filtered.shape}")
 
     if filtered.empty:
         print("\nNo data with PAS_CRD + TOT. Checking available values...")
-        vinci_data = df[df["rep_airp"].isin(vinci_codes)]
-        print(f"VINCI rows total: {len(vinci_data)}")
-        print(f"tra_meas values: {vinci_data['tra_meas'].unique().tolist()}")
-        print(f"schedule values: {vinci_data['schedule'].unique().tolist()}")
-        print(f"freq values: {vinci_data['freq'].unique().tolist()}")
+        subset = df[df["rep_airp"].isin(codes)]
+        print(f"Airport rows total: {len(subset)}")
+        print(f"tra_meas values: {subset['tra_meas'].unique().tolist()}")
+        print(f"schedule values: {subset['schedule'].unique().tolist()}")
+        print(f"freq values: {subset['freq'].unique().tolist()}")
         tra_cov_col = [c for c in df.columns if "tra_cov" in c.lower()]
         if tra_cov_col:
-            print(f"tra_cov values: {vinci_data[tra_cov_col[0]].unique().tolist()}")
+            print(f"tra_cov values: {subset[tra_cov_col[0]].unique().tolist()}")
         return
 
     # Identify monthly columns (YYYY-MM format)
@@ -86,7 +86,7 @@ def main() -> None:
             print("Keeping all tra_cov values (no TOTAL found)")
 
     long = long.rename(columns={"rep_airp": "airport"})
-    long["airport_name"] = long["airport"].map(VINCI_AIRPORTS)
+    long["airport_name"] = long["airport"].map(AIRPORTS)
 
     result = long[["airport", "airport_name", "date", "pax"]].sort_values(
         ["airport", "date"]
@@ -96,7 +96,7 @@ def main() -> None:
     print(f"\nFinal dataset: {result.shape}")
     print(f"Date range: {result['date'].min()} to {result['date'].max()}")
     print("\nPer airport:")
-    for code, name in VINCI_AIRPORTS.items():
+    for code, name in AIRPORTS.items():
         sub = result[result["airport"] == code]
         if len(sub) > 0:
             print(f"  {name} ({code}): {len(sub)} months, "

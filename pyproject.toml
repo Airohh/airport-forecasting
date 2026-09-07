@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "airport-forecast"
 version = "0.1.0"
-description = "Airport PAX forecasting on VINCI Airports network — multi-model ML pipeline"
+description = "Prévision PAX mensuel sur 6 aéroports européens (Eurostat)"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [

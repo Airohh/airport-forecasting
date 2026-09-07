@@ -15,7 +15,7 @@ from airport_forecast.features import build_features
 
 app = FastAPI(
     title="Airport PAX Forecasting API",
-    description="Multi-model forecasting for VINCI Airports network",
+    description="Prévision PAX mensuel, 6 aéroports européens (Eurostat)",
     version="0.1.0",
 )
 
