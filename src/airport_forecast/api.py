@@ -30,7 +30,7 @@ SHORT = SHORT_NAMES
 class PredictRequest(BaseModel):
     airport: str = Field(..., description="Airport code (e.g. FR_LFLL)")
     horizon: int = Field(default=6, ge=1, le=24, description="Months to forecast")
-    model: str = Field(default="lightgbm", description="Model: lightgbm, sarima, prophet, chronos")
+    model: str = Field(default="lightgbm", description="lightgbm or sarima")
 
 
 class PredictionPoint(BaseModel):
@@ -188,11 +188,12 @@ def model_metrics(airport: str):
     if airport not in CORE_AIRPORTS:
         raise HTTPException(404, f"Airport {airport} not found")
 
-    results_path = REPORTS_DIR / "model_results.csv"
+    results_path = REPORTS_DIR / "horizon_results.csv"
     if not results_path.exists():
-        raise HTTPException(404, "No results available. Run training first.")
+        raise HTTPException(404, "No results available. Run evaluate_horizons.py first.")
 
     df = pd.read_csv(results_path)
     sub = df[df["airport"] == airport]
-    metrics = sub[["model", "horizon", "mae", "rmse", "mape"]].to_dict("records")
+    cols = [c for c in ("model", "horizon", "mae", "rmse", "mape", "mase") if c in sub.columns]
+    metrics = sub[cols].to_dict("records")
     return MetricsResponse(airport=airport, metrics=metrics)

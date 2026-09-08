@@ -26,7 +26,7 @@ onestep_test = [r for r in onestep_results if pd.to_datetime(r.dates).min().year
 
 # 2. Recursive (the HONEST method)
 print("Running recursive forecast (this rebuilds features per month)...")
-_, recursive_results = evaluate_lightgbm_recursive(enriched, val_end="2024-12", core_airports=CORE)
+_, _, recursive_results = evaluate_lightgbm_recursive(enriched, val_end="2024-12", core_airports=CORE)
 
 # 3. SARIMA (already honest multi-step)
 sarima_results = []

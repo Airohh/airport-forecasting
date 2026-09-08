@@ -109,10 +109,9 @@ def load_raw() -> pd.DataFrame:
 
 @st.cache_data(show_spinner=False)
 def load_reports():
-    res = pd.read_csv(REPORTS / "model_results.csv") if (REPORTS / "model_results.csv").exists() else pd.DataFrame()
     fi = pd.read_csv(REPORTS / "feature_importance.csv") if (REPORTS / "feature_importance.csv").exists() else pd.DataFrame()
     hz = pd.read_csv(REPORTS / "horizon_results.csv") if (REPORTS / "horizon_results.csv").exists() else pd.DataFrame()
-    return res, fi, hz
+    return fi, hz
 
 
 @st.cache_resource(show_spinner=False)
@@ -139,7 +138,7 @@ def run_backtest(val_end: str = "2024-12") -> dict[str, pd.DataFrame]:
     before the genuine post-data forecast extends beyond it."""
     from airport_forecast.models import evaluate_lightgbm_recursive
 
-    _, results = evaluate_lightgbm_recursive(
+    _, _, results = evaluate_lightgbm_recursive(
         load_raw(), val_end=val_end, core_airports=CORE_AIRPORTS
     )
     out: dict[str, pd.DataFrame] = {}
@@ -233,7 +232,7 @@ def kpi_card(col, label: str, value: str, sub: str) -> None:
 
 
 raw = load_raw()
-results, fi, hz = load_reports()
+fi, hz = load_reports()
 mape_curve = horizon_mape_curve(hz)
 hz_points = sorted(mape_curve)
 
@@ -493,32 +492,12 @@ with tab_perf:
             pivot.round(1).style.highlight_min(axis=0, color="#d6f5dd"),
             use_container_width=True,
         )
-        st.caption("Lowest MAPE per horizon highlighted. LightGBM Recursive wins every horizon.")
+        st.caption("Source: reports/horizon_results.csv — recursive, pas le one-step.")
 
-    if not results.empty:
-        st.subheader("Average MAPE by model (per-airport, one-step)")
-        res = results.copy()
-        res["airport_name"] = res["airport"].map(SHORT)
-        avg = res.groupby("model")["mape"].mean().sort_values(ascending=False)
-        colors = [ACCENT if v == avg.min() else MUTED for v in avg.values]
-        figb = go.Figure(go.Bar(
-            x=avg.values, y=avg.index, orientation="h",
-            marker_color=colors,
-            text=[f"{v:.1f}%" for v in avg.values],
-            textposition="outside", hoverinfo="skip",
-        ))
-        figb.update_xaxes(title_text="MAPE (%)")
-        st.plotly_chart(style_fig(figb, height=320, legend=False),
-                        use_container_width=True, config=PLOTLY_CFG)
-        st.caption(
-            "So what: LightGBM Global wins. Prophet collapses (it extrapolates the "
-            "pre-COVID trend instead of learning the recovery) — a worked example of "
-            "why a flexible learner with an explicit `is_covid` flag beats a rigid "
-            "trend model on a regime change."
-        )
-
-        st.subheader("Per-airport MAPE")
-        pv = res.pivot_table(index="airport_name", columns="model", values="mape", aggfunc="mean")
+        st.subheader("MAPE par aéroport (récursif)")
+        hz2 = hz.copy()
+        hz2["airport_name"] = hz2["airport"].map(SHORT)
+        pv = hz2.pivot_table(index="airport_name", columns="model", values="mape", aggfunc="mean")
         st.dataframe(pv.round(1).style.highlight_min(axis=1, color="#d6f5dd"),
                      use_container_width=True)
 
@@ -533,10 +512,7 @@ with tab_perf:
 with tab_drv:
     st.subheader("What drives the forecast — SHAP (impact in passengers)")
     st.markdown(
-        "SHAP attributes each prediction to its features in **PAX units** — not just "
-        "*which* feature matters (split count) but *how much* it moves the forecast and "
-        "*in which direction*. This answers the question an airport director actually "
-        "asks: **why do you predict +X% this summer?**"
+        "SHAP en passagers : combien chaque feature pousse le forecast, et dans quel sens."
     )
 
     try:
@@ -595,11 +571,8 @@ with tab_drv:
         if rank:
             ranked = ", ".join(f"`{f}` #{r}" for f, r in sorted(rank.items(), key=lambda x: x[1]))
             st.info(
-                "**Macro hypothesis, tested honestly:** lagged PAX, the rolling mean, "
-                "flight supply and seasonality dominate. Macro features rank lower — "
-                f"{ranked} out of {len(feat_names)}. Oil carries a modest signal; GDP, "
-                "unemployment and FX are weak once seasonality and supply are in. Showing "
-                "this is the point: the enriched features were *tested*, not assumed."
+                f"Les lags / saison / vols pèsent plus que la macro "
+                f"({ranked} sur {len(feat_names)})."
             )
     except Exception as e:  # noqa: BLE001 — dashboard should degrade, not crash
         st.warning(f"SHAP unavailable ({e}). Falling back to split-count importance.")

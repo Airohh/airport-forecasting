@@ -446,7 +446,7 @@ def evaluate_lightgbm_recursive(
             dates=sub["date"].values,
         ))
 
-    return model, results
+    return model, feature_cols, results
 
 
 def evaluate_lightgbm_global(

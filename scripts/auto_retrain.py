@@ -1,18 +1,11 @@
-"""Auto-retrain orchestrator: PSI drift check -> conditional model retrain.
+"""PSI drift check, then optional retrain.
 
-Wires the "PSI Drift Detection -> Retrain trigger" arrow from the architecture
-diagram. Run on a schedule (cron / Airflow / Kubeflow). Compares the recent
-production window against the training reference; if features have drifted past
-the trigger rule (see monitoring.should_retrain), retrains the global LightGBM
-on all available data and atomically swaps models/lightgbm_global.pkl.
+By default training stops at VAL_END so the pickle matches the backtest.
+Pass --until all to fit on every row (that pickle is no longer the holdout snapshot).
 
-Usage:
-    python scripts/auto_retrain.py                  # check + retrain if drifted
-    python scripts/auto_retrain.py --check-only     # report drift, never retrain
-    python scripts/auto_retrain.py --force          # retrain regardless of drift
-    python scripts/auto_retrain.py --prod-months 6  # production window size
-
-Exit code 0 = no retrain needed, 1 = retrained, 2 = drift check failed.
+    python scripts/auto_retrain.py
+    python scripts/auto_retrain.py --check-only
+    python scripts/auto_retrain.py --force
 """
 
 from __future__ import annotations
@@ -28,7 +21,7 @@ from pathlib import Path
 import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
-from airport_forecast.constants import CORE_AIRPORTS
+from airport_forecast.constants import CORE_AIRPORTS, VAL_END
 from airport_forecast.data import load_enriched
 from airport_forecast.features import build_features
 from airport_forecast.models import train_lightgbm_global
@@ -73,10 +66,7 @@ def _split_reference_production(feat: pd.DataFrame, prod_months: int, ref_months
 
 
 def _retrain_and_swap(feat_core: pd.DataFrame) -> dict:
-    """Retrain global LightGBM on ALL available data, atomic-swap the served model.
-
-    Old model is backed up to .pkl.bak so a bad retrain can be rolled back.
-    """
+    """Retrain global LightGBM, atomic-swap the served model. Backup → .pkl.bak."""
     lag_cols = [c for c in feat_core.columns if "lag" in c or "rolling" in c]
     train_clean = feat_core.dropna(subset=lag_cols)
     model, fcols = train_lightgbm_global(train_clean)
@@ -98,10 +88,18 @@ def main() -> int:
     parser.add_argument("--prod-months", type=int, default=12, help="production window (months)")
     parser.add_argument("--ref-months", type=int, default=36, help="reference window before prod (months)")
     parser.add_argument("--n-warning", type=int, default=3, help="WARNING count that triggers retrain")
+    parser.add_argument(
+        "--until",
+        default=VAL_END,
+        help=f"Train cutoff (default {VAL_END}, same as backtest). Use 'all' for every row.",
+    )
     args = parser.parse_args()
 
     feat = build_features(load_enriched())
     feat_core = feat[feat["airport"].isin(CORE_AIRPORTS)].copy()
+    if args.until != "all":
+        feat_core = feat_core[feat_core["date"] <= pd.Timestamp(args.until)].copy()
+        print(f"  train cutoff: {args.until} (holdout after that is unused)")
     feature_cols = [c for c in MONITOR_FEATURES if c in feat_core.columns]
 
     reference, production = _split_reference_production(

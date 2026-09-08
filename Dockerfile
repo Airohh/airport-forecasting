@@ -1,4 +1,4 @@
-FROM python:3.14-slim
+FROM python:3.12-slim
 
 WORKDIR /app
 
@@ -8,8 +8,7 @@ COPY data/processed/ data/processed/
 COPY reports/ reports/
 COPY models/ models/
 
-RUN pip install --no-cache-dir -e ".[serving]" && \
-    pip install --no-cache-dir uvicorn
+RUN pip install --no-cache-dir -e ".[serving,dashboard,sarima]"
 
 EXPOSE 8000
 

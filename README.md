@@ -1,12 +1,12 @@
 # Airport forecasting
 
-J’ai pris 6 aéroports européens (Eurostat) pour voir si un seul LightGBM tient partout, sans lire le futur au moment du forecast. Comparaison avec SARIMA, Prophet et Chronos.
+J’ai pris 6 aéroports européens (Eurostat) pour voir si un seul LightGBM tient partout, sans lire le futur au moment du forecast.
 
-Les chiffres sont dans `reports/horizon_results.csv`.
+Le chiffre qui compte : l’éval **récursive** (`reports/horizon_results.csv`). Pas le one-step de `model_results.csv` (lags du test, trop gentil).
 
 ## Résultat
 
-MAPE, moyenne sur les 6 aéroports (Lyon, Nantes, Budapest, Lisbonne, Porto, Belgrade).
+MAPE moyen, 6 aéroports (Lyon, Nantes, Budapest, Lisbonne, Porto, Belgrade).
 
 | Horizon | LightGBM | SARIMA |
 |---------|----------|--------|
@@ -15,13 +15,13 @@ MAPE, moyenne sur les 6 aéroports (Lyon, Nantes, Budapest, Lisbonne, Porto, Bel
 | M+6 | 3.8% | 6.0% |
 | M+12 | 3.9% | 5.2% |
 
-Sur la fenêtre test complète : LightGBM 4.4%, SARIMA 5.5%.
+Fenêtre test complète : LightGBM 4.4%, SARIMA 5.5%.
 
-Les intervalles nominaux 80% ne couvrent que ~52% des points. Le point forecast tient ; l’incertitude pas encore.
+Les intervalles nominaux 80% ne couvrent que ~52% — et ils sont calculés en one-step, pas en récursif. Le point forecast est le claim ; l’incertitude pas encore.
 
 ## Données
 
-Eurostat `avia_paoa` (PAX + mouvements), chômage / PIB Eurostat, pétrole FRED, change BCE, jours fériés. Features : lags, rolling, saison, macro, flags (COVID, etc.).
+Eurostat `avia_paoa` (PAX + mouvements), chômage / PIB, pétrole FRED, change BCE, jours fériés.
 
 ## Lancer
 
@@ -34,12 +34,13 @@ python scripts/download_eurostat.py
 python scripts/process_eurostat.py
 python scripts/download_macro_v2.py
 
-python scripts/train_all_models.py
+python scripts/evaluate_horizons.py
+python scripts/save_production_model.py
 uvicorn airport_forecast.api:app --reload
 streamlit run src/airport_forecast/dashboard.py
 ```
 
-Les CSV et le pickle LightGBM sont déjà dans `reports/` et `models/` si tu veux juste regarder les scores.
+Les CSV et le pickle sont déjà dans `reports/` et `models/` si tu veux juste regarder les scores.
 
 ```bash
 curl -X POST http://localhost:8000/predict \
@@ -47,16 +48,19 @@ curl -X POST http://localhost:8000/predict \
   -d "{\"airport\": \"FR_LFLL\", \"horizon\": 6, \"model\": \"lightgbm\"}"
 ```
 
-`pytest tests/ -q` — data, features, modèles, PSI.
+`/models/{airport}/metrics` lit `horizon_results.csv` (récursif).
+
+`pytest tests/ -q` — dont `test_recursive_honesty.py` (les vols / PAX futurs ne doivent pas fuiter).
 
 ## Drift
 
-`python scripts/auto_retrain.py` compare une fenêtre récente au passé (PSI sur des ratios / saison / macro, pas les niveaux de trafic). Si ça passe le seuil : réentraîne, remplace `models/lightgbm_global.pkl`, garde un `.bak`. Pas de cron.
+`python scripts/auto_retrain.py` : PSI, puis retrain **jusqu’à 2024-12** (même cutoff que le backtest). `--until all` pour tout l’historique. Pas de cron.
 
 ## Limites
 
-- Les vols futurs sont remplacés par le même mois N-1. En vrai on aurait les programmes compagnies.
-- Pas d’Airflow / Kubeflow.
-- Chronos varie beaucoup d’un aéroport à l’autre. Ce n’est pas le modèle servi.
+- Vols futurs = même mois N-1.
+- SARIMA M+12 : 4 aéroports dans le CSV (Lyon / Nantes absents).
+- Chronos / Prophet : scripts de comparaison, pas servis.
+- `train_all_models.py` écrit encore le CSV one-step. Ne pas s’en servir pour le pitch.
 
 Licence [MIT](LICENSE).

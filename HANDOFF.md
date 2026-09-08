@@ -1,6 +1,6 @@
 # Notes
 
-Projet perso. 6 aéroports européens, données Eurostat. LightGBM global vs SARIMA. Éval récursive (`assume_future_exog`).
+Projet perso. 6 aéroports, Eurostat. Claim = éval récursive (`horizon_results.csv`), pas `model_results.csv`.
 
-Params Optuna dans `reports/best_params.json`. Drift : `scripts/auto_retrain.py`.
-Les chiffres du README viennent des CSV dans `reports/`.
+Entraîner le pickle du backtest : `python scripts/save_production_model.py`.
+Drift : `python scripts/auto_retrain.py` (cutoff VAL_END par défaut).
