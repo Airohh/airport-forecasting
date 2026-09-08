@@ -1,0 +1,11 @@
+{
+  "method": "split-conformal on recursive residuals",
+  "coverage_target": 0.8,
+  "q_pax": 140243.1,
+  "n_cal": 145,
+  "cal_origin": "2023-12",
+  "test_origin": "2024-12",
+  "test_coverage_pct": 90.4,
+  "test_mean_width_pax": 280486.0,
+  "n_test": 73
+}

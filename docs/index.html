@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Airport forecasting</title>
+  <style>
+    body { font: 16px/1.45 system-ui, sans-serif; max-width: 42rem; margin: 2rem auto; padding: 0 1rem; color: #1d2b3a; }
+    h1 { font-size: 1.4rem; font-weight: 650; }
+    table { border-collapse: collapse; width: 100%; margin: 1rem 0; }
+    th, td { text-align: left; padding: .4rem .5rem; border-bottom: 1px solid #e8ebef; }
+    th { font-size: .8rem; text-transform: uppercase; letter-spacing: .04em; color: #6b7785; }
+    a { color: #2b6cb0; }
+    p, li { color: #2c3a48; }
+  </style>
+</head>
+<body>
+  <h1>Airport forecasting</h1>
+  <p>Un LightGBM pour 6 aéroports européens (Eurostat). Éval récursive : on ne lit pas le futur.</p>
+  <p>Repo : <a href="https://github.com/Airohh/airport-forecasting">github.com/Airohh/airport-forecasting</a></p>
+
+  <table>
+    <thead>
+      <tr><th>Horizon</th><th>LightGBM</th><th>SARIMA</th><th>Naive N-1</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>M+1</td><td>3.5%</td><td>6.0%</td><td>6.2%</td></tr>
+      <tr><td>M+3</td><td>4.1%</td><td>5.2%</td><td>5.7%</td></tr>
+      <tr><td>M+6</td><td>3.8%</td><td>6.0%</td><td>6.3%</td></tr>
+      <tr><td>M+12</td><td>3.9%</td><td>5.2%</td><td>6.5%</td></tr>
+    </tbody>
+  </table>
+
+  <p>À M+1 / M+3 le MAPE gagne, le MAE contre la naïve non (MASE &gt; 1). À M+6 / M+12, MASE &lt; 1.</p>
+  <p>Intervalles split-conformal sur le chemin récursif : cible 80%, couverture 90% sur 2025, ±140k PAX.</p>
+</body>
+</html>

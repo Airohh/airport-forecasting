@@ -1,10 +1,6 @@
 """Evaluate LightGBM recursive vs SARIMA vs Naive at multiple horizons.
 
-Includes:
-- Naive seasonal baseline (same month last year)
-- MASE (vs naive), bias, MAPE
-- Expanding window cross-validation (3 folds)
-- Quantile regression prediction intervals (10th/90th)
+Intervalles : scripts/evaluate_conformal.py
 """
 
 import sys
@@ -14,7 +10,7 @@ import numpy as np
 import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
-from airport_forecast.constants import SHORT_NAMES as SHORT, CORE_AIRPORTS as CORE
+from airport_forecast.constants import CORE_AIRPORTS as CORE
 from airport_forecast.data import load_enriched
 from airport_forecast.features import build_features, temporal_train_val_test_split
 from airport_forecast.models import (
@@ -23,7 +19,6 @@ from airport_forecast.models import (
     results_to_dataframe,
     train_lightgbm_global,
     train_sarima,
-    FEATURE_COLS,
 )
 
 REPORTS = Path(__file__).resolve().parent.parent / "reports"
@@ -196,78 +191,8 @@ pivot_std = pivot_std[sorted(pivot_std.columns)]
 pivot_std.columns = [f"M+{c}" for c in pivot_std.columns]
 print(pivot_std.round(1).to_string())
 
-# ═══════════════════════════════════════════════
-# QUANTILE REGRESSION (prediction intervals)
-# ═══════════════════════════════════════════════
-print("\n" + "=" * 60)
-print("PREDICTION INTERVALS (LightGBM quantile regression)")
-print("=" * 60)
+# Intervalles : python scripts/evaluate_conformal.py (récursif, pas les quantiles one-step).
 
-import lightgbm as lgb
-
-feat = build_features(enriched)
-feat_core = feat[feat["airport"].isin(CORE)].copy()
-train, _, test = temporal_train_val_test_split(feat_core, "2024-12", "2024-12")
-lag_cols = [c for c in train.columns if "lag" in c or "rolling" in c]
-train_clean = train.dropna(subset=lag_cols)
-test_clean = test.dropna(subset=lag_cols)
-
-feature_cols = [c for c in FEATURE_COLS if c in train_clean.columns]
-if "airport" in train_clean.columns:
-    train_clean = train_clean.copy()
-    test_clean = test_clean.copy()
-    train_clean["airport_cat"] = train_clean["airport"].astype("category")
-    test_clean["airport_cat"] = test_clean["airport"].astype("category")
-    all_features = ["airport_cat"] + feature_cols
-else:
-    all_features = feature_cols
-
-X_train = train_clean[all_features]
-y_train = train_clean["pax"]
-X_test = test_clean[all_features]
-
-quantile_preds = {}
-for q, label in [(0.1, "p10"), (0.5, "p50"), (0.9, "p90")]:
-    model_q = lgb.LGBMRegressor(
-        objective="quantile", alpha=q,
-        n_estimators=500, max_depth=8, learning_rate=0.05,
-        verbose=-1, n_jobs=-1, random_state=42,
-    )
-    model_q.fit(X_train, y_train, categorical_feature=["airport_cat"])
-    quantile_preds[label] = np.maximum(model_q.predict(X_test), 0)
-
-test_clean = test_clean.copy()
-test_clean["pred_p10"] = quantile_preds["p10"]
-test_clean["pred_p50"] = quantile_preds["p50"]
-test_clean["pred_p90"] = quantile_preds["p90"]
-test_clean["in_interval"] = (
-    (test_clean["pax"] >= test_clean["pred_p10"]) &
-    (test_clean["pax"] <= test_clean["pred_p90"])
-)
-
-coverage = test_clean["in_interval"].mean() * 100
-avg_width = (test_clean["pred_p90"] - test_clean["pred_p10"]).mean()
-
-print(f"\n80% prediction interval (P10–P90):")
-print(f"  Coverage: {coverage:.1f}% (target: 80%)")
-print(f"  Avg interval width: {avg_width:,.0f} PAX")
-
-print("\nPer airport:")
-for ap in CORE:
-    sub = test_clean[test_clean["airport"] == ap]
-    if sub.empty:
-        continue
-    cov = sub["in_interval"].mean() * 100
-    width = (sub["pred_p90"] - sub["pred_p10"]).mean()
-    print(f"  {SHORT[ap]:>10s}: coverage={cov:.0f}%, width={width:,.0f} PAX")
-
-# Save interval predictions
-interval_cols = ["airport", "date", "pax", "pred_p10", "pred_p50", "pred_p90", "in_interval"]
-test_clean[interval_cols].to_csv(REPORTS / "prediction_intervals.csv", index=False)
-
-# ═══════════════════════════════════════════════
-# SAVE ALL RESULTS
-# ═══════════════════════════════════════════════
 df_primary.to_csv(REPORTS / "horizon_results.csv", index=False)
 df_cv.to_csv(REPORTS / "cv_results.csv", index=False)
-print(f"\nSaved: horizon_results.csv, cv_results.csv, prediction_intervals.csv")
+print("Saved: horizon_results.csv, cv_results.csv")

@@ -9,6 +9,7 @@ Tabs:
 
 from __future__ import annotations
 
+import json
 import pickle
 import sys
 from pathlib import Path
@@ -105,6 +106,17 @@ PLOTLY_CFG = {"displayModeBar": False, "responsive": True}
 def load_raw() -> pd.DataFrame:
     df = load_enriched()
     return df[df["airport"].isin(CORE_AIRPORTS)].copy()
+
+
+@st.cache_data(show_spinner=False)
+def load_conformal_q() -> float | None:
+    path = REPORTS / "conformal_summary.json"
+    if not path.exists():
+        return None
+    try:
+        return float(json.loads(path.read_text(encoding="utf-8"))["q_pax"])
+    except (KeyError, ValueError, OSError):
+        return None
 
 
 @st.cache_data(show_spinner=False)
@@ -261,8 +273,8 @@ with st.container(border=True):
 
 Un seul LightGBM pour les 6 aéroports, tuné et évalué en récursif.
 Pour l'instant : **{best_m1:.1f}%** à M+1, **{best_m12:.1f}%** à M+12, mieux que SARIMA
-sur ces horizons. Ajouter un aéroport = ajouter des lignes. Les intervalles
-à 80% ne couvrent pas encore assez (voir l'onglet Performance).
+sur ces horizons. Intervalles split-conformal (récursif) : 90% de couverture
+sur 2025, cible 80% — larges (±140k PAX).
 """
     )
 
@@ -310,14 +322,20 @@ with tab_fc:
 
     hist = raw[raw["airport"] == ap_code].sort_values("date").tail(48)
 
-    # Uncertainty band from THIS airport's per-horizon MAPE (interp, no clamp
-    # surprises: horizon is capped at the curve's max so np.interp stays in-range)
-    ap_pts = sorted(ap_curve)
-    ap_vals = [ap_curve[h] for h in ap_pts]
-    months_ahead = np.arange(1, len(fc_ap) + 1)
-    band_pct = np.interp(months_ahead, ap_pts, ap_vals) / 100.0
-    lower = fc_ap["pax_pred"].values * (1 - band_pct)
-    upper = fc_ap["pax_pred"].values * (1 + band_pct)
+    # Uncertainty band: split-conformal q on recursive residuals, else MAPE %
+    q = load_conformal_q()
+    if q is not None:
+        lower = np.maximum(fc_ap["pax_pred"].values - q, 0)
+        upper = fc_ap["pax_pred"].values + q
+        band_name = "intervalle 80% (conformal)"
+    else:
+        ap_pts = sorted(ap_curve)
+        ap_vals = [ap_curve[h] for h in ap_pts]
+        months_ahead = np.arange(1, len(fc_ap) + 1)
+        band_pct = np.interp(months_ahead, ap_pts, ap_vals) / 100.0
+        lower = fc_ap["pax_pred"].values * (1 - band_pct)
+        upper = fc_ap["pax_pred"].values * (1 + band_pct)
+        band_name = "±MAPE (secours)"
 
     # Live SARIMA aligned to the same future dates
     fut_dates = list(fc_ap["date"])
@@ -335,8 +353,8 @@ with tab_fc:
             fig.add_trace(go.Scatter(
                 x=fc_ap["date"], y=lower / 1e6, mode="lines",
                 line=dict(width=0), fill="tonexty",
-                fillcolor="rgba(226,0,26,.13)", hoverinfo="skip",
-                name="±MAPE band (LGB)",
+                fillcolor="rgba(43,108,176,.18)", hoverinfo="skip",
+                name=band_name,
             ))
 
         # Actual history
