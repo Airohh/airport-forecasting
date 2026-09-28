@@ -23,7 +23,9 @@ import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 
-from airport_forecast.constants import CORE_AIRPORTS, SHORT_NAMES as SHORT
+from airport_forecast.conformal import apply_relative_interval
+from airport_forecast.constants import CORE_AIRPORTS
+from airport_forecast.constants import SHORT_NAMES as SHORT
 from airport_forecast.data import load_enriched
 from airport_forecast.models import forecast_future_global, train_sarima
 
@@ -109,12 +111,13 @@ def load_raw() -> pd.DataFrame:
 
 
 @st.cache_data(show_spinner=False)
-def load_conformal_q() -> float | None:
+def load_conformal_q_rel() -> float | None:
+    """Relative half-width: the 80% band is pred * (1 ± q_rel)."""
     path = REPORTS / "conformal_summary.json"
     if not path.exists():
         return None
     try:
-        return float(json.loads(path.read_text(encoding="utf-8"))["q_pax"])
+        return float(json.loads(path.read_text(encoding="utf-8"))["q_rel"])
     except (KeyError, ValueError, OSError):
         return None
 
@@ -213,7 +216,7 @@ def horizon_mape_curve(hz: pd.DataFrame, ap_code: str | None = None) -> dict[int
     """LightGBM recursive MAPE per horizon (for the uncertainty band). When an
     airport is given, use ITS own backtested error curve (more honest than the
     network average — Budapest is harder than Porto)."""
-    fallback = {1: 3.5, 3: 4.1, 6: 3.8, 12: 3.9}
+    fallback = {1: 3.5, 3: 4.1, 6: 3.8, 12: 3.3}
     if hz.empty:
         return fallback
     sub = hz[hz["model"] == "LightGBM_Recursive"]
@@ -257,11 +260,13 @@ st.caption("6 aéroports européens, Eurostat. Éval récursive : on ne lit pas 
 best_m1 = mape_curve.get(min(hz_points), np.nan)
 best_m12 = mape_curve.get(max(hz_points), np.nan)
 last_month = raw["date"].max().strftime("%b %Y")
+sarima_hz = hz[(hz["model"] == "SARIMA") & (hz["horizon"] == max(hz_points))] if not hz.empty else hz
+sarima_m12 = sarima_hz["mape"].mean() if not sarima_hz.empty else np.nan
 
 k1, k2, k3, k4 = st.columns(4)
 kpi_card(k1, "Airports", str(raw["airport"].nunique()), "Lyon, Nantes, Budapest, Lisbonne, Porto, Belgrade")
 kpi_card(k2, "MAPE M+1", f"{best_m1:.1f}%", "honest recursive")
-kpi_card(k3, "MAPE M+12", f"{best_m12:.1f}%", "beats SARIMA 5.2%")
+kpi_card(k3, "MAPE M+12", f"{best_m12:.1f}%", f"SARIMA {sarima_m12:.1f}%")
 kpi_card(k4, "Data through", last_month, "Eurostat avia_paoa")
 
 st.write("")
@@ -273,8 +278,9 @@ with st.container(border=True):
 
 Un seul LightGBM pour les 6 aéroports, tuné et évalué en récursif.
 Pour l'instant : **{best_m1:.1f}%** à M+1, **{best_m12:.1f}%** à M+12, mieux que SARIMA
-sur ces horizons. Intervalles split-conformal (récursif) : 90% de couverture
-sur 2025, cible 80% — larges (±140k PAX).
+sur ces horizons. Intervalles split-conformal (récursif, relatifs) : ±7.8% autour de la
+prévision, 88% de couverture sur 2025 pour une cible de 80%, au moins 80% sur
+chaque aéroport.
 """
     )
 
@@ -322,11 +328,10 @@ with tab_fc:
 
     hist = raw[raw["airport"] == ap_code].sort_values("date").tail(48)
 
-    # Uncertainty band: split-conformal q on recursive residuals, else MAPE %
-    q = load_conformal_q()
-    if q is not None:
-        lower = np.maximum(fc_ap["pax_pred"].values - q, 0)
-        upper = fc_ap["pax_pred"].values + q
+    # Uncertainty band: relative split-conformal on recursive residuals, else MAPE %
+    q_rel = load_conformal_q_rel()
+    if q_rel is not None:
+        lower, upper = apply_relative_interval(fc_ap["pax_pred"].values, q_rel)
         band_name = "intervalle 80% (conformal)"
     else:
         ap_pts = sorted(ap_curve)

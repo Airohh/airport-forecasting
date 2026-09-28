@@ -8,20 +8,22 @@ Le chiffre qui compte : l’éval **récursive** (`reports/horizon_results.csv`)
 
 ## Résultat
 
-MAPE moyen.
+MAPE moyen sur les h premiers mois après l’origine (entraînement jusqu’à 2024-12).
 
 | Horizon | LightGBM | SARIMA | Naive (même mois N-1) |
 |---------|----------|--------|------------------------|
-| M+1 | 3.5% | 6.0% | 6.2% |
-| M+3 | 4.1% | 5.2% | 5.7% |
-| M+6 | 3.8% | 6.0% | 6.3% |
-| M+12 | 3.9% | 5.2% | 6.5% |
+| M+1 | 3.5% | 5.7% | 6.2% |
+| M+3 | 4.1% | 4.8% | 5.7% |
+| M+6 | 3.8% | 5.6% | 6.3% |
+| M+12 | 3.3% | 4.6% | 6.5% |
 
-Fenêtre test complète : LightGBM 4.4%, SARIMA 5.5%.
+Chaque ligne compare les trois modèles sur les mêmes aéroports. À M+12 il n’en reste que 4 : les données de Lyon et Nantes s’arrêtent en 2025-11 (11 mois de test).
 
-À M+1 / M+3, LightGBM gagne en MAPE mais pas en MAE contre la naïve (MASE 1.13 / 1.22). À M+6 / M+12, MASE < 1.
+À M+1 / M+3, LightGBM gagne en MAPE mais pas en MAE contre la naïve (MASE 1.13 / 1.22). À M+6 / M+12, MASE < 1 (0.66 / 0.61).
 
-Intervalles : split-conformal sur les résidus **récursifs** (calibré 2024, testé 2025). Cible 80%, couverture observée **90%**, largeur ±140k PAX. Fichier : `reports/conformal_summary.json`.
+Intervalles 80% : split-conformal sur les résidus **récursifs**, score relatif |y − ŷ| / ŷ. Calibré sur 2024 uniquement (modèle entraîné jusqu’à 2023-12), testé sur 2025+ (modèle entraîné jusqu’à 2024-12). Bande ŷ × (1 ± 7.8%) : couverture **88%**, au moins 80% sur chaque aéroport, largeur moyenne 219k PAX. L’API renvoie ces bornes (`pax_lower`, `pax_upper`). Fichier : `reports/conformal_summary.json`.
+
+Même calibrage avec un score absolu (± 127k PAX pour tous) : 90% au total, mais 67% à Lisbonne (~3M PAX/mois) et 100% à Nantes (~0.6M). Détail par aéroport dans le JSON (`absolute_baseline`).
 
 ## Données
 
@@ -62,8 +64,9 @@ curl -X POST http://localhost:8000/predict \
 ## Limites
 
 - Vols futurs = même mois N-1.
-- SARIMA M+12 : 4 aéroports dans le CSV (Lyon / Nantes absents).
-- Intervalles volontiers larges (conformal conservateur).
+- M+12 : 4 aéroports seulement (Lyon / Nantes absents, données jusqu’à 2025-11).
+- Intervalles : 72 points de calibration, 73 de test. La couverture par aéroport repose sur 11 à 15 mois, donc elle est bruitée.
+- CV 3 plis (`cv_results.csv`) : les hyperparamètres ont été tunés sur 2024, qui est aussi le test du pli 2. Ce pli est optimiste ; le chiffre propre est le pli 3 (tableau ci-dessus).
 - Chronos / Prophet : pas servis.
 - `train_all_models.py` écrit encore le CSV one-step.
 

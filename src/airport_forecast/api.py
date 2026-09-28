@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import pickle
 from pathlib import Path
 
@@ -9,7 +10,8 @@ import pandas as pd
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 
-from airport_forecast.constants import SHORT_NAMES, CORE_AIRPORTS
+from airport_forecast.conformal import apply_relative_interval
+from airport_forecast.constants import CORE_AIRPORTS, SHORT_NAMES
 from airport_forecast.data import load_enriched
 from airport_forecast.features import build_features
 
@@ -82,8 +84,8 @@ def _load_lgb_model():
             with open(model_path, "rb") as f:
                 _model_cache["lgb"] = pickle.load(f)
         else:
-            from airport_forecast.models import train_lightgbm_global
             from airport_forecast.features import temporal_train_val_test_split
+            from airport_forecast.models import train_lightgbm_global
             feat, _ = _load_data()
             feat_core = feat[feat["airport"].isin(CORE_AIRPORTS)]
             train, val, _ = temporal_train_val_test_split(feat_core)
@@ -96,6 +98,17 @@ def _load_lgb_model():
                 pickle.dump({"model": model, "feature_cols": fcols}, f)
             _model_cache["lgb"] = {"model": model, "feature_cols": fcols}
     return _model_cache["lgb"]["model"], _model_cache["lgb"]["feature_cols"]
+
+
+def _load_q_rel() -> float | None:
+    """Relative 80% half-width from evaluate_conformal.py (LightGBM recursive path)."""
+    if "q_rel" not in _model_cache:
+        path = REPORTS_DIR / "conformal_summary.json"
+        try:
+            _model_cache["q_rel"] = float(json.loads(path.read_text(encoding="utf-8"))["q_rel"])
+        except (OSError, KeyError, ValueError):
+            _model_cache["q_rel"] = None
+    return _model_cache["q_rel"]
 
 
 @app.get("/")
@@ -151,12 +164,20 @@ def predict(req: PredictRequest):
         if fc_ap.empty:
             raise HTTPException(400, "Not enough data for recursive forecast")
 
+        preds = fc_ap["pax_pred"].to_numpy(dtype=float)
+        q_rel = _load_q_rel()
+        if q_rel is not None:
+            lower, upper = apply_relative_interval(preds, q_rel)
+        else:
+            lower = upper = [None] * len(preds)
         predictions = [
             PredictionPoint(
                 date=pd.Timestamp(d).strftime("%Y-%m"),
                 pax_predicted=max(int(p), 0),
+                pax_lower=None if lo is None else int(lo),
+                pax_upper=None if hi is None else int(hi),
             )
-            for d, p in zip(fc_ap["date"].values, fc_ap["pax_pred"].values)
+            for d, p, lo, hi in zip(fc_ap["date"].values, preds, lower, upper)
         ]
 
     elif req.model == "sarima":
