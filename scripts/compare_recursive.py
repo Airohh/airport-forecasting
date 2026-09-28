@@ -6,7 +6,8 @@ from pathlib import Path
 import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
-from airport_forecast.constants import SHORT_NAMES as SHORT, CORE_AIRPORTS as CORE
+from airport_forecast.constants import CORE_AIRPORTS as CORE
+from airport_forecast.constants import SHORT_NAMES as SHORT
 from airport_forecast.data import load_enriched
 from airport_forecast.features import build_features
 from airport_forecast.models import (
@@ -52,6 +53,7 @@ for ap in CORE:
     print(f"{SHORT[ap]:<10} {o:>11.1f}% {r:>13.1f}% {s:>9.1f}%")
 
 import numpy as np
+
 print("-" * 50)
 print(f"{'AVG':<10} {np.mean(list(onestep_map.values())):>11.1f}% "
       f"{np.mean(list(recursive_map.values())):>13.1f}% "

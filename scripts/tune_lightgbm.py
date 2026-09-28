@@ -11,7 +11,14 @@ from sklearn.metrics import mean_absolute_error
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 from airport_forecast.constants import (
-    SHORT_NAMES as SHORT, CORE_AIRPORTS as CORE, TRAIN_END, VAL_END,
+    CORE_AIRPORTS as CORE,
+)
+from airport_forecast.constants import (
+    SHORT_NAMES as SHORT,
+)
+from airport_forecast.constants import (
+    TRAIN_END,
+    VAL_END,
 )
 from airport_forecast.data import load_enriched
 from airport_forecast.features import build_features, temporal_train_val_test_split
@@ -131,6 +138,7 @@ for ap in CORE:
 
 # Save best params
 import json
+
 params_path = Path(__file__).resolve().parent.parent / "reports" / "best_params.json"
 with open(params_path, "w") as f:
     json.dump({"best_params": study.best_params, "val_mape": study.best_value,

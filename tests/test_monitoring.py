@@ -3,7 +3,12 @@
 import numpy as np
 import pandas as pd
 
-from airport_forecast.monitoring import psi, check_prediction_drift, monitor_drift, should_retrain
+from airport_forecast.monitoring import (
+    check_prediction_drift,
+    monitor_drift,
+    psi,
+    should_retrain,
+)
 
 
 def test_psi_identical_distributions():
