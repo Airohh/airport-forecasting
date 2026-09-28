@@ -2,8 +2,8 @@
 
 import pytest
 
-from airport_forecast.data import DATA_DIR, load_pax, load_enriched
 from airport_forecast.constants import AIRPORTS, CORE_AIRPORTS
+from airport_forecast.data import DATA_DIR, load_enriched, load_pax
 
 _MONTHLY = DATA_DIR / "processed" / "pax_monthly.parquet"
 _skip_monthly = pytest.mark.skipif(

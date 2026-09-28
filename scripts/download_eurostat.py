@@ -4,7 +4,6 @@ import time
 from pathlib import Path
 
 import eurostat
-import pandas as pd
 
 RAW_DIR = Path(__file__).resolve().parent.parent / "data" / "raw"
 RAW_DIR.mkdir(parents=True, exist_ok=True)

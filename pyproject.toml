@@ -20,7 +20,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=7.0", "ruff>=0.4"]
+dev = ["pytest>=7.0", "ruff>=0.4,<1"]
 sarima = ["statsmodels>=0.14"]
 models = ["prophet>=1.1"]
 mlops = ["mlflow>=2.10"]
@@ -34,6 +34,11 @@ where = ["src"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src"]
+
+[tool.ruff.lint]
+# Explicit rule set: ruff's defaults change between releases, which turned CI red.
+select = ["E", "F", "I"]
+ignore = ["E501"]
 
 [tool.ruff.lint.per-file-ignores]
 "scripts/**" = ["E402"]

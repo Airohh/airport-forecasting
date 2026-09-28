@@ -1,10 +1,8 @@
 """Download macro-economic enrichment data v2 — fixed dedup + real oil prices."""
 
 import sys
-import time
 from pathlib import Path
 
-import numpy as np
 import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
@@ -257,11 +255,11 @@ def main():
 
     if not oil.empty:
         pax = pax.merge(oil, on="date", how="left")
-        assert len(pax) == original_len, f"Oil merge created duplicates"
+        assert len(pax) == original_len, "Oil merge created duplicates"
         print(f"  + oil: {pax['oil_price_usd'].notna().sum()}/{original_len}")
 
     pax = pax.merge(exchange, on=["country", "date"], how="left")
-    assert len(pax) == original_len, f"Exchange merge created duplicates"
+    assert len(pax) == original_len, "Exchange merge created duplicates"
     print(f"  + exchange: {pax['exchange_rate'].notna().sum()}/{original_len}")
 
     pax = pax.merge(events, on=["airport", "date"], how="left")

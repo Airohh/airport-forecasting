@@ -20,7 +20,7 @@ jobs:
         run: pip install -e ".[dev,serving,sarima]"
 
       - name: Lint
-        run: ruff check src/ tests/
+        run: ruff check src/ tests/ scripts/ app.py
 
       - name: Test
         run: pytest tests/ -q --tb=short
