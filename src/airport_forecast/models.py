@@ -50,6 +50,11 @@ def train_sarima(
 ) -> np.ndarray:
     from statsmodels.tsa.statespace.sarimax import SARIMAX
 
+    # Regular monthly index: a missing month (Belgrade 2020-11) becomes NaN,
+    # which the Kalman filter skips, instead of an index statsmodels rejects.
+    if isinstance(train_series.index, pd.DatetimeIndex):
+        train_series = train_series.asfreq("MS")
+
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         model = SARIMAX(

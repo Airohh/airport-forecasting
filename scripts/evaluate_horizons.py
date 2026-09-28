@@ -69,10 +69,13 @@ def evaluate_fold(enriched_df, val_end, horizons, fold_name=""):
             continue
 
         # --- LightGBM Recursive ---
+        # Same rule as SARIMA / naive below: an airport counts at M+h only if it
+        # has h actual months after the origin, so every model is averaged over
+        # the same airports (Lyon / Nantes stop at 11 months in the last fold).
         for ap in CORE:
             fc_ap = fc[fc["airport"] == ap].head(h)
             fc_ap = fc_ap.dropna(subset=["pax_actual", "pax_pred"])
-            if fc_ap.empty:
+            if len(fc_ap) < h:
                 continue
             y_naive = get_naive_seasonal(enriched_df, ap, fc_ap["date"].values)
             all_results.append(ForecastResult(
