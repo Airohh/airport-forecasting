@@ -1,11 +1,71 @@
 {
-  "method": "split-conformal on recursive residuals",
+  "method": "split-conformal on recursive residuals, relative score |y-pred|/pred",
   "coverage_target": 0.8,
-  "q_pax": 140243.1,
-  "n_cal": 145,
+  "q_rel": 0.0777,
+  "n_cal": 72,
   "cal_origin": "2023-12",
+  "cal_end": "2024-12",
   "test_origin": "2024-12",
-  "test_coverage_pct": 90.4,
-  "test_mean_width_pax": 280486.0,
-  "n_test": 73
+  "n_test": 73,
+  "test_coverage_pct": 87.7,
+  "test_mean_width_pax": 218705.0,
+  "min_airport_coverage_pct": 80.0,
+  "per_airport": {
+    "FR_LFLL": {
+      "coverage_pct": 90.9,
+      "mean_width_pax": 144857.0
+    },
+    "FR_LFRS": {
+      "coverage_pct": 81.8,
+      "mean_width_pax": 93382.0
+    },
+    "HU_LHBP": {
+      "coverage_pct": 80.0,
+      "mean_width_pax": 254419.0
+    },
+    "PT_LPPT": {
+      "coverage_pct": 100.0,
+      "mean_width_pax": 457539.0
+    },
+    "PT_LPPR": {
+      "coverage_pct": 91.7,
+      "mean_width_pax": 223239.0
+    },
+    "RS_LYBE": {
+      "coverage_pct": 83.3,
+      "mean_width_pax": 113268.0
+    }
+  },
+  "absolute_baseline": {
+    "q_pax": 126664.4,
+    "test_coverage_pct": 90.4,
+    "test_mean_width_pax": 253329.0,
+    "min_airport_coverage_pct": 66.7,
+    "per_airport": {
+      "FR_LFLL": {
+        "coverage_pct": 100.0,
+        "mean_width_pax": 253329.0
+      },
+      "FR_LFRS": {
+        "coverage_pct": 100.0,
+        "mean_width_pax": 253329.0
+      },
+      "HU_LHBP": {
+        "coverage_pct": 80.0,
+        "mean_width_pax": 253329.0
+      },
+      "PT_LPPT": {
+        "coverage_pct": 66.7,
+        "mean_width_pax": 253329.0
+      },
+      "PT_LPPR": {
+        "coverage_pct": 100.0,
+        "mean_width_pax": 253329.0
+      },
+      "RS_LYBE": {
+        "coverage_pct": 100.0,
+        "mean_width_pax": 253329.0
+      }
+    }
+  }
 }

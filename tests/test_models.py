@@ -1,11 +1,16 @@
 """Tests for models and API."""
 
 import sys
+
 import numpy as np
 import pandas as pd
 import pytest
 
-from airport_forecast.models import ForecastResult, ensemble_predictions, results_to_dataframe
+from airport_forecast.models import (
+    ForecastResult,
+    ensemble_predictions,
+    results_to_dataframe,
+)
 
 
 def test_forecast_result_metrics():
@@ -69,8 +74,9 @@ def test_results_to_dataframe_empty():
 class TestAPI:
     @pytest.fixture(autouse=True)
     def setup(self):
-        from airport_forecast.api import app
         from fastapi.testclient import TestClient
+
+        from airport_forecast.api import app
         self.client = TestClient(app)
 
     def test_root(self):
@@ -96,6 +102,7 @@ class TestAPI:
         assert len(data["predictions"]) == 3
         for p in data["predictions"]:
             assert p["pax_predicted"] > 0
+            assert p["pax_lower"] < p["pax_predicted"] < p["pax_upper"]
 
     def test_predict_sarima(self):
         r = self.client.post("/predict", json={
